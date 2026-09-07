@@ -1,0 +1,50 @@
+ThermalCurve 1.0.0 - Composants tiers / Third-party components
+
+FR
+La licence PolyForm Noncommercial s'applique au code original de ThermalCurve.
+Elle ne remplace pas les licences des bibliothèques, données et polices tierces.
+Les droits accordés par ces licences restent applicables à leurs composants,
+y compris les droits de modification, remplacement et rétro-ingénierie prévus
+par la LGPL pour les bibliothèques concernées et le débogage de ces modifications.
+
+EN
+PolyForm Noncommercial applies to original ThermalCurve code. It does not replace
+the licenses of third-party libraries, data or fonts. Rights granted by those
+licenses remain applicable to their components, including LGPL rights to modify
+or replace the relevant libraries and reverse engineer to debug such changes.
+
+Composants directs / Direct components
+Python: PSF license and incorporated third-party notices.
+  https://docs.python.org/3/license.html
+PySide6, Shiboken6, Qt: LGPL v3 where available; component-specific notices apply.
+  https://doc.qt.io/qt-6/licensing.html
+  https://doc.qt.io/qtforpython-6/licenses.html
+Matplotlib: Matplotlib license (PSF-based) and bundled third-party notices.
+  https://matplotlib.org/stable/project/license.html
+NumPy: BSD-3-Clause and bundled numerical library notices.
+  https://numpy.org/doc/stable/license.html
+pandas: BSD-3-Clause.
+  https://pandas.pydata.org/docs/getting_started/overview.html#license
+openpyxl: MIT. https://openpyxl.readthedocs.io/
+xlrd: BSD. https://xlrd.readthedocs.io/
+Mendeleev data snapshot v0.20.0: MIT, copyright Lukasz Mentel.
+  See licenses/Mendeleev/LICENSE and licenses/Mendeleev/PROVENANCE.md.
+  https://github.com/lmmentel/mendeleev
+PyInstaller bootloader: GPL with the distribution exception.
+  https://pyinstaller.org/en/stable/license.html
+
+FR : Pour une distribution Windows, conserver également les textes de licences
+et notices du dossier licenses livré avec l'exécutable. Les DLL Qt/PySide doivent
+rester remplaçables par des versions compatibles. Les sources correspondantes
+et leurs références doivent accompagner les informations de redistribution.
+EN: For a Windows distribution, also retain the license texts and notices in the
+licenses folder shipped with the executable. Qt/PySide DLLs must remain replaceable
+by compatible versions. Corresponding sources and their references must accompany
+the redistribution information.
+
+FR : Les textes complets sont dans licenses/INDEX.txt et ses sous-dossiers.
+Les sources et le remplacement des bibliothèques Qt/PySide sont décrits dans
+licenses/QT_SOURCES.txt. Qt/PySide : © The Qt Company Ltd. et autres contributeurs.
+EN: Full texts are indexed in licenses/INDEX.txt and its subdirectories.
+Qt/PySide sources and library replacement are described in licenses/QT_SOURCES.txt.
+Qt/PySide: © The Qt Company Ltd. and other contributors.
