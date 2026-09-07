@@ -1,0 +1,36 @@
+ThermalCurve - Licences tierces / Third-party licenses
+
+FR : Textes conservés depuis les paquets installés et archives officielles.
+Les notices Qt incluent un ensemble conservateur de contributions tierces.
+La présence d'une notice n'implique pas l'utilisation de tout le composant.
+Qt/PySide sont utilisés sous LGPL v3. Voir Qt/*/LICENSES/LGPL-3.0-only.txt
+et GPL-3.0-only.txt. Sources et remplacement : voir QT_SOURCES.txt.
+
+EN: Texts retained from installed packages and official source archives.
+Qt notices include a conservative set of third-party contributions.
+A notice does not imply that the entire component is used.
+Qt/PySide are used under LGPL v3. See Qt/*/LICENSES/LGPL-3.0-only.txt
+and GPL-3.0-only.txt. Sources and replacement: see QT_SOURCES.txt.
+
+PySide6 6.11.1
+PySide6_Essentials 6.11.1
+PySide6_Addons 6.11.1
+shiboken6 6.11.1
+matplotlib 3.11.1
+numpy 2.5.1
+pandas 3.0.3
+openpyxl 3.1.5
+xlrd 2.0.2
+contourpy 1.3.3
+cycler 0.12.1
+fonttools 4.63.0
+kiwisolver 1.5.0
+packaging 26.2
+pillow 12.3.0
+pyparsing 3.3.2
+python-dateutil 2.9.0.post0
+tzdata 2026.3
+et-xmlfile 2.0.0
+six 1.17.0
+PyInstaller 6.21.0
+typing_extensions 4.16.0

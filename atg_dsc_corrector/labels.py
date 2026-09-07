@@ -1,0 +1,127 @@
+"""Libellés sûrs et cohérents pour les séries dérivées."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import re
+
+
+@dataclass(frozen=True, slots=True)
+class TGNormalizedLabels:
+    """Versions Matplotlib et texte simple d'un libellé TG normalisé."""
+
+    mathtext: str
+    plain_text: str
+
+
+@dataclass(frozen=True, slots=True)
+class UnitLabels:
+    """Versions MathText et texte simple d'une unité composée."""
+
+    mathtext: str
+    plain_text: str
+
+
+def escape_mathtext(value: str, *, chemical_digits: bool = False) -> str:
+    """Échappe du texte libre et transforme éventuellement ses chiffres en indices."""
+
+    parts: list[str] = []
+    position = 0
+    for match in re.finditer(r"\d+", value):
+        parts.append(_escape_mathtext_segment(value[position : match.start()]))
+        digits = match.group(0)
+        parts.append(f"_{{{digits}}}" if chemical_digits else digits)
+        position = match.end()
+    parts.append(_escape_mathtext_segment(value[position:]))
+    return "".join(parts)
+
+
+def _escape_mathtext_segment(value: str) -> str:
+    escaped: list[str] = []
+    for char in value:
+        if char == "\\":
+            escaped.append(r"\backslash{}")
+        elif char in r"{}_$%#&":
+            escaped.append("\\" + char)
+        elif char == "^":
+            escaped.append(r"\^{}")
+        elif char == "~":
+            escaped.append(r"\~{}")
+        elif char.isspace():
+            escaped.append(r"\ ")
+        else:
+            escaped.append(char)
+    return "".join(escaped)
+
+
+def reference_subscript(
+    reference_name: str,
+    *,
+    chemical_digits: bool = False,
+) -> str:
+    """Retourne un indice MathText inerte pour les libellés existants."""
+
+    name = reference_name.strip()
+    if not name:
+        return ""
+    safe_name = escape_mathtext(name, chemical_digits=chemical_digits)
+    return rf"$_{{\mathrm{{{safe_name}}}}}$"
+
+
+def format_unit(unit: str, reference_name: str = "") -> UnitLabels:
+    """Formate une division d'unités sans barre oblique."""
+
+    parts = [part.strip() for part in unit.split("/")]
+    if len(parts) == 1:
+        return UnitLabels(unit, unit)
+    name = reference_name.strip()
+    math_parts = [rf"\mathrm{{{escape_mathtext(parts[0])}}}"]
+    plain_parts = [parts[0]]
+    for index, denominator in enumerate(parts[1:], start=1):
+        is_reference_mass = (
+            bool(name)
+            and index == len(parts) - 1
+            and denominator in {"mg", "g"}
+        )
+        safe_denominator = escape_mathtext(denominator)
+        if is_reference_mass:
+            safe_name = escape_mathtext(name, chemical_digits=True)
+            math_parts.append(
+                rf"\mathrm{{{safe_denominator}}}_{{\mathrm{{{safe_name}}}}}^{{-1}}"
+            )
+            plain_parts.append(f"{denominator}_{name}^-1")
+        else:
+            math_parts.append(rf"\mathrm{{{safe_denominator}}}^{{-1}}")
+            plain_parts.append(f"{denominator}^-1")
+    return UnitLabels(
+        "$" + r"\cdot".join(math_parts) + "$",
+        ".".join(plain_parts),
+    )
+
+
+def tg_normalized_labels(
+    representation: str,
+    reference_name: str = "",
+) -> TGNormalizedLabels:
+    """Construit le libellé TG normalisé unique du graphe et des exports."""
+
+    if representation not in {"normalized_mg_mg", "normalized_pct"}:
+        raise ValueError("La représentation TG n'est pas normalisée.")
+    name = reference_name.strip()
+    if representation == "normalized_mg_mg":
+        unit_labels = format_unit("mg/mg", name)
+        return TGNormalizedLabels(
+            f"Variation de masse normalisée ({unit_labels.mathtext})",
+            f"Variation de masse normalisée ({unit_labels.plain_text})",
+        )
+    if name:
+        safe_name = escape_mathtext(name, chemical_digits=True)
+        reference = rf"$m_{{\mathrm{{{safe_name}}}}}$"
+        return TGNormalizedLabels(
+            f"Variation relative à {reference} (%)",
+            f"Variation relative à m_{name} (%)",
+        )
+    return TGNormalizedLabels(
+        "Variation de masse normalisée (%)",
+        "Variation de masse normalisée (%)",
+    )

@@ -1,0 +1,7 @@
+dab3f4764309081ce75662649be815c4c9081e88f0837825f90fd28317d4da54  et_xmlfile-2.0.0.tar.gz
+cf0e3cf56142039133628b5acffe8ef0c12bc902d2aadd3e0fe5878dc08d1050  openpyxl-3.1.5.tar.gz
+d9f2e86726a1f6d756323be74a890786aa546d5e8fa457ced3117f4418a5388b  pyside-setup-everywhere-src-6.11.1.zip
+3529cc37297a5a7aae4486843b9fd41c30df1d79a770f85e240b537dcc327ca5  qtbase-everywhere-src-6.11.1.zip
+37fba768f2780580dfae535ad6654cb9dc0bf2272e71b9b9781988de9ed0dac0  qtimageformats-everywhere-src-6.11.1.zip
+767730188d4610a89bf8da502f87acf1c8881a3ac54f1e0eb167ab1e08b03a75  qtsvg-everywhere-src-6.11.1.zip
+eef43700ffd079f5893e435aca1330c8bdbf2a94ae45013e3fc63870df53d3b0  qttranslations-everywhere-src-6.11.1.zip
