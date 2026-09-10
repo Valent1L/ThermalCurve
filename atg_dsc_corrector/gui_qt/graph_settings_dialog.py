@@ -9,7 +9,9 @@ import json
 import math
 from uuid import uuid4
 
-from PySide6.QtCore import QLocale, QSignalBlocker, Qt
+from PySide6.QtCore import QSignalBlocker, Qt
+from .number_format import number_locale, parse_number
+from atg_dsc_corrector.i18n import decimal_text
 from PySide6.QtGui import QColor, QDoubleValidator, QFontDatabase
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -37,7 +39,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from atg_dsc_corrector.plotting import SIGNAL_COLORS
+from .color_button import ColorButton
 from atg_dsc_corrector.projects import (
     default_graph_settings,
     graph_from_template_payload,
@@ -47,23 +49,21 @@ from atg_dsc_corrector.projects import (
 
 
 AXIS_LABELS = {
-    "x": _t('Axe X'),
+    "x": 'Axe X',
     "tg": "TG",
     "dtg": "dTG",
-    "heat_flow": _t('Flux de chaleur'),
+    "heat_flow": 'Flux de chaleur',
 }
 LINE_STYLES = {
-    "-": _t('Continue'),
-    "--": _t('Tirets'),
-    "-.": _t('Mixte'),
-    ":": _t('Points'),
+    "-": 'Continue',
+    "--": 'Tirets',
+    "-.": 'Mixte',
+    ":": 'Points',
 }
-MARKERS = {"": _t('Aucun'), "o": _t('Cercle'), "s": _t('Carré'), "^": _t('Triangle'), "x": _t('Croix')}
-MIXED = object()
 
 
 def _color_button(color: str) -> QPushButton:
-    button = QPushButton(color.upper())
+    button = ColorButton(color.upper())
     button.setProperty("graphColor", color.upper())
     button.setAccessibleName(_t('Couleur {v1}', v1=color.upper()))
 
@@ -84,7 +84,8 @@ class _ReferenceLineDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(_t('Ligne de référence'))
         self.setModal(True)
-        self._locale = QLocale()
+        self._locale = number_locale()
+        self.setLocale(self._locale)
         layout = QFormLayout(self)
 
         self.orientation_combo = QComboBox()
@@ -109,7 +110,7 @@ class _ReferenceLineDialog(QDialog):
         layout.addRow(_t('Couleur'), self.color_button)
         self.style_combo = QComboBox()
         for value, label in LINE_STYLES.items():
-            self.style_combo.addItem(label, value)
+            self.style_combo.addItem(_t(label), value)
         layout.addRow(_t('Style'), self.style_combo)
         self.width_entry = QLineEdit("1")
         self.width_entry.setValidator(validator)
@@ -118,6 +119,7 @@ class _ReferenceLineDialog(QDialog):
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel
         )
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(_t('Annuler'))
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
@@ -151,15 +153,15 @@ class _ReferenceLineDialog(QDialog):
         current = self.axis_combo.currentData()
         self.axis_combo.clear()
         if self.orientation_combo.currentData() == "vertical":
-            self.axis_combo.addItem(AXIS_LABELS["x"], "x")
+            self.axis_combo.addItem(_t(AXIS_LABELS["x"]), "x")
         else:
             for role in ("tg", "dtg", "heat_flow"):
-                self.axis_combo.addItem(AXIS_LABELS[role], role)
+                self.axis_combo.addItem(_t(AXIS_LABELS[role]), role)
         self.axis_combo.setCurrentIndex(max(0, self.axis_combo.findData(current)))
 
     def line_value(self, identifier: str) -> dict[str, object]:
-        value, valid = self._locale.toDouble(self.value_entry.text().strip())
-        width, width_valid = self._locale.toDouble(self.width_entry.text().strip())
+        value, valid = parse_number(self.value_entry.text(), self._locale)
+        width, width_valid = parse_number(self.width_entry.text(), self._locale)
         if not valid or not math.isfinite(value):
             raise ValueError(_t('La valeur de la ligne doit être un nombre fini.'))
         if not width_valid or not math.isfinite(width) or not 0.1 <= width <= 10.0:
@@ -189,14 +191,15 @@ class _AnnotationDialog(QDialog):
     def __init__(self, annotation: dict[str, object] | None, parent: QWidget) -> None:
         super().__init__(parent)
         self.setWindowTitle(_t('Annotation'))
-        self._locale = QLocale()
+        self._locale = number_locale()
+        self.setLocale(self._locale)
         form = QFormLayout(self)
         annotation = annotation or {}
         self.text_entry = QLineEdit(str(annotation.get("text", "")))
         form.addRow(_t('Texte'), self.text_entry)
         self.axis_combo = QComboBox()
         for role, label in AXIS_LABELS.items():
-            self.axis_combo.addItem(label, role)
+            self.axis_combo.addItem(_t(label), role)
         self.axis_combo.setCurrentIndex(max(0, self.axis_combo.findData(annotation.get("axis", "x"))))
         form.addRow(_t('Axe cible'), self.axis_combo)
         self.coordinates_combo = QComboBox()
@@ -233,6 +236,7 @@ class _AnnotationDialog(QDialog):
         self.arrow_combo.setCurrentIndex(max(0, self.arrow_combo.findData(annotation.get("arrow_style", ""))))
         form.addRow(_t('Style de flèche'), self.arrow_combo)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(_t('Annuler'))
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
@@ -255,7 +259,7 @@ class _AnnotationDialog(QDialog):
         text = entry.text().strip()
         if not text and not required:
             return None
-        value, valid = self._locale.toDouble(text)
+        value, valid = parse_number(text, self._locale)
         if not valid or not math.isfinite(value):
             raise ValueError(_t("Les coordonnées d'annotation doivent être finies."))
         return float(value)
@@ -298,7 +302,6 @@ class GraphSettingsDialog(QDialog):
         alignment_mode: str,
         comparison: bool,
         show_offsets_in_legend: bool,
-        selected_curves: list[dict[str, object]],
         apply_callback,
         parent: QWidget,
     ) -> None:
@@ -312,23 +315,23 @@ class GraphSettingsDialog(QDialog):
         self._limits = deepcopy(limits)
         self._signals = tuple(dict.fromkeys(signals))
         self._comparison = comparison
-        self._selected_curves = deepcopy(selected_curves)
+        self._show_offsets_in_legend = show_offsets_in_legend
         self._apply_callback = apply_callback
-        self._locale = QLocale()
+        self._locale = number_locale()
+        self.setLocale(self._locale)
         self._axis_role = "x"
-        self._curve_role = self._signals[0] if self._signals else None
         self._initial_reference_ids = {
             str(line["id"]) for line in self._graph["reference_lines"]
         }
-        self._curve_changes: dict[str, object] = {}
 
         layout = QVBoxLayout(self)
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs, 1)
-        self._build_general_tab(alignment_mode, show_offsets_in_legend)
+        self._build_general_tab(alignment_mode)
+        self._build_grid_tab()
         self._build_axes_tab()
-        self._build_curves_tab()
         self._build_reference_lines_tab()
+        self._build_spacing_tab()
         self._build_advanced_tab()
         self.validation_label = QLabel()
         self.validation_label.setProperty("error", True)
@@ -375,67 +378,179 @@ class GraphSettingsDialog(QDialog):
         entry.setAccessibleName(accessible_name)
         return entry
 
-    def _build_general_tab(
-        self, alignment_mode: str, show_offsets_in_legend: bool
-    ) -> None:
+    def _build_general_tab(self, alignment_mode: str) -> None:
         page, form = self._page()
         self.title_entry = QLineEdit(str(self._graph["title"]))
         self.title_entry.setAccessibleName(_t('Titre du graphique'))
         form.addRow(_t('Titre'), self.title_entry)
-        self.grid_major_check = QCheckBox(_t('Afficher la grille majeure'))
-        self.grid_major_check.setChecked(bool(self._graph["grid_major"]))
-        self.grid_minor_check = QCheckBox(_t('Afficher la grille mineure'))
-        self.grid_minor_check.setChecked(bool(self._graph["grid_minor"]))
-        form.addRow(self.grid_major_check)
-        form.addRow(self.grid_minor_check)
-        self.grid_axis_combo = QComboBox()
-        for label, value in ((_t('X et Y'), "both"), ("X", "x"), ("Y", "y")):
-            self.grid_axis_combo.addItem(label, value)
-        self.grid_axis_combo.setCurrentIndex(
-            max(0, self.grid_axis_combo.findData(self._graph["grid_axis"]))
-        )
-        form.addRow(_t('Orientation de grille'), self.grid_axis_combo)
-        self.legend_check = QCheckBox(_t('Afficher la légende'))
-        self.legend_check.setChecked(bool(self._graph["legend_visible"]))
-        form.addRow(self.legend_check)
-        self.legend_position_combo = QComboBox()
-        for label, value in (
-            (_t('Automatique'), "best"),
-            (_t('Haut gauche'), "upper left"),
-            (_t('Haut droite'), "upper right"),
-            (_t('Bas gauche'), "lower left"),
-            (_t('Bas droite'), "lower right"),
-            (_t('Extérieur'), "outside"),
-        ):
-            self.legend_position_combo.addItem(label, value)
-        self.legend_position_combo.setCurrentIndex(
-            max(0, self.legend_position_combo.findData(self._graph["legend_position"]))
-        )
-        form.addRow(_t('Position de la légende'), self.legend_position_combo)
         self.alignment_combo = QComboBox()
         self.alignment_combo.addItem(_t('Aucun'), "none")
         self.alignment_combo.addItem(_t('Aligner les zéros'), "zeros")
-        if not self._comparison:
-            self.alignment_combo.addItem(_t('Aligner les références'), "references")
+        self.alignment_combo.addItem(_t('Aligner les références'), "references")
         self.alignment_combo.setCurrentIndex(
             max(0, self.alignment_combo.findData(alignment_mode))
         )
         form.addRow(_t('Alignement'), self.alignment_combo)
-        self.offsets_legend_check = QCheckBox(
-            _t('Afficher les décalages dans la légende')
-        )
-        self.offsets_legend_check.setChecked(show_offsets_in_legend)
-        self.offsets_legend_check.setVisible(self._comparison)
-        form.addRow(self.offsets_legend_check)
         self.tabs.addTab(page, _t('Général'))
 
-    def _build_axes_tab(self) -> None:
+    def _scroll_tab(self, content: QWidget, title: str) -> None:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setWidget(content)
+        self.tabs.addTab(scroll, _t(title))
+
+    @staticmethod
+    def _optional_color(form: QFormLayout, title: str, fallback: str):
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        button = _color_button(fallback)
+        auto = QCheckBox(_t('Automatique'))
+        auto.toggled.connect(button.setDisabled)
+        layout.addWidget(button)
+        layout.addWidget(auto)
+        layout.addStretch()
+        form.addRow(_t(title), row)
+        return button, auto
+
+    @staticmethod
+    def _set_color(controls, value):
+        button, auto = controls
+        auto.setChecked(value is None)
+        button.setEnabled(value is not None)
+        if value is not None:
+            button.setProperty("graphColor", value)
+            button.setText(value)
+
+    @staticmethod
+    def _color_value(controls):
+        button, auto = controls
+        return None if auto.isChecked() else button.property("graphColor")
+
+    def _build_grid_tab(self) -> None:
         page, form = self._page()
+        self.grid_axis_combo = QComboBox()
+        for label, value in (("X et Y", "both"), ("X", "x"), ("Y", "y")):
+            self.grid_axis_combo.addItem(_t(label), value)
+        form.addRow(_t('Orientation de grille'), self.grid_axis_combo)
+        self.grid_controls = {}
+        for kind, title in (("major", 'Grille majeure'), ("minor", 'Grille mineure')):
+            box = QGroupBox(_t(title))
+            box.setCheckable(True)
+            group = QFormLayout(box)
+            color = self._optional_color(group, 'Couleur', '#D2D2D2')
+            style = QComboBox()
+            for value, label in LINE_STYLES.items():
+                style.addItem(_t(label), value)
+            group.addRow(_t('Style'), style)
+            width = QDoubleSpinBox()
+            width.setRange(0.1, 10)
+            width.setSingleStep(0.1)
+            group.addRow(_t('Épaisseur (pt)'), width)
+            form.addRow(box)
+            self.grid_controls[kind] = (box, color, style, width)
+        self._load_grid()
+        self._scroll_tab(page, 'Grille')
+
+    def _load_grid(self) -> None:
+        self.grid_axis_combo.setCurrentIndex(self.grid_axis_combo.findData(self._graph['grid_axis']))
+        for kind, (box, color, style, width) in self.grid_controls.items():
+            values = self._graph['grid_styles'][kind]
+            box.setChecked(self._graph[f'grid_{kind}'])
+            self._set_color(color, values['color'])
+            style.setCurrentIndex(style.findData(values['line_style']))
+            width.setValue(values['line_width'])
+
+    def _save_grid(self) -> None:
+        self._graph['grid_axis'] = self.grid_axis_combo.currentData()
+        for kind, (box, color, style, width) in self.grid_controls.items():
+            self._graph[f'grid_{kind}'] = box.isChecked()
+            self._graph['grid_styles'][kind] = {'color': self._color_value(color), 'line_style': style.currentData(), 'line_width': width.value()}
+
+    def _build_axes_tab(self) -> None:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        selector, form = self._page()
+        form.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(selector)
         self.axis_combo = QComboBox()
-        for role in ("x", *self._signals):
-            self.axis_combo.addItem(AXIS_LABELS[role], role)
+        for role, label in (("x", "Axe inférieur (X)"), ("x_top", "Axe supérieur (X)"),
+                            *((role, AXIS_LABELS[role]) for role in self._signals),
+                            ("thermal_program", "Température programmée")):
+            self.axis_combo.addItem(_t(label), role)
         self.axis_combo.currentIndexChanged.connect(self._axis_changed)
         form.addRow(_t('Axe'), self.axis_combo)
+        self.all_axes_button = QPushButton(_t('Tous les axes'))
+        self.paired_axes_button = QPushButton(_t('Les deux axes X'))
+        self.all_axes_button.setToolTip(_t("Appliquer l'apparence à tous les axes"))
+        self.paired_axes_button.setToolTip(_t("Appliquer à l'autre axe X"))
+        self.all_axes_button.clicked.connect(lambda: self._copy_axis_appearance(all_axes=True))
+        self.paired_axes_button.clicked.connect(lambda: self._copy_axis_appearance(all_axes=False))
+        copy_row = QWidget()
+        copy_layout = QHBoxLayout(copy_row)
+        copy_layout.setContentsMargins(0, 0, 0, 0)
+        copy_layout.addWidget(self.all_axes_button)
+        copy_layout.addWidget(self.paired_axes_button)
+        form.addRow(_t("Copier l'apparence vers"), copy_row)
+        copy_row.setToolTip(_t("La copie concerne les traits et graduations. Les bornes et échelles restent propres à chaque grandeur ; l'axe supérieur partage l'abscisse inférieure."))
+        self.axis_tabs = QTabWidget()
+        layout.addWidget(self.axis_tabs, 1)
+        appearance_page, form = self._page()
+        appearance_scroll = QScrollArea()
+        appearance_scroll.setWidgetResizable(True)
+        appearance_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        appearance_scroll.setWidget(appearance_page)
+        self.axis_tabs.addTab(appearance_scroll, _t('Traits et graduations'))
+        self.axis_visible_check = QCheckBox(_t('Afficher les traits et graduations'))
+        form.addRow(self.axis_visible_check)
+        self.axis_labels_check = QCheckBox(_t('Afficher les libellés et valeurs'))
+        form.addRow(self.axis_labels_check)
+
+        line_box = QGroupBox(_t("Trait de l'axe"))
+        line_form = QFormLayout(line_box)
+        self.axis_line_check = QCheckBox(_t('Afficher'))
+        line_form.addRow(self.axis_line_check)
+        self.axis_color = self._optional_color(line_form, 'Couleur', '#000000')
+        self.axis_width_spin = QDoubleSpinBox()
+        self.axis_width_spin.setRange(0.1, 10)
+        self.axis_width_spin.setSingleStep(0.1)
+        line_form.addRow(_t('Épaisseur (pt)'), self.axis_width_spin)
+        self.axis_position_combo = QComboBox()
+        line_form.addRow(_t("Position de l'axe"), self.axis_position_combo)
+        self.axis_arrow_combo = QComboBox()
+        for value, label in (("none", "Aucune"), ("end", "Extrémité positive"), ("both", "Deux extrémités")):
+            self.axis_arrow_combo.addItem(_t(label), value)
+        line_form.addRow(_t('Flèche'), self.axis_arrow_combo)
+        form.addRow(line_box)
+
+        self.tick_controls = {}
+        for kind, title in (("major", 'Graduations majeures'), ("minor", 'Graduations mineures')):
+            box = QGroupBox(_t(title))
+            box.setCheckable(True)
+            group = QFormLayout(box)
+            direction = QComboBox()
+            for value, label in (("out", "Vers l'extérieur"), ("in", "Vers l'intérieur"), ("inout", "Intérieur et extérieur")):
+                direction.addItem(_t(label), value)
+            group.addRow(_t('Direction'), direction)
+            length = self._number_entry(_t('Longueur des graduations (pt)'))
+            length.setPlaceholderText(_t('Automatique'))
+            group.addRow(_t('Longueur (pt)'), length)
+            color = self._optional_color(group, 'Couleur', '#000000')
+            width = self._number_entry(_t('Épaisseur des graduations (pt)'))
+            width.setPlaceholderText(_t('Automatique'))
+            group.addRow(_t('Épaisseur (pt)'), width)
+            form.addRow(box)
+            self.tick_controls[kind] = (box, direction, length, color, width)
+
+        self.axis_range_box = QGroupBox(_t('Échelle et valeurs'))
+        range_form = QFormLayout(self.axis_range_box)
+        range_scroll = QScrollArea()
+        range_scroll.setWidgetResizable(True)
+        range_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        range_scroll.setWidget(self.axis_range_box)
+        self.axis_tabs.addTab(range_scroll, _t('Échelle et valeurs'))
+        form = range_form
         label_row = QWidget()
         label_layout = QHBoxLayout(label_row)
         label_layout.setContentsMargins(0, 0, 0, 0)
@@ -489,120 +604,11 @@ class GraphSettingsDialog(QDialog):
         self._load_axis("x")
         self.tabs.addTab(page, _t('Axes et graduations'))
 
-    def _curve_defaults(self, role: str) -> dict[str, object]:
-        return {
-            "color": SIGNAL_COLORS[role],
-            "line_style": "-",
-            "line_width": 1.4,
-            "marker": "",
-            "markevery": None,
-        }
-
-    def _build_curves_tab(self) -> None:
-        page, form = self._page()
-        self.curve_combo = QComboBox()
-        if self._comparison:
-            names = [str(record["legend_name"]) for record in self._selected_curves]
-            self.curve_combo.addItem(
-                ", ".join(names) if names else _t('Aucune courbe sélectionnée'), None
-            )
-        else:
-            for role in self._signals:
-                self.curve_combo.addItem(AXIS_LABELS[role], role)
-            self.curve_combo.currentIndexChanged.connect(self._curve_changed)
-        form.addRow(_t('Courbe'), self.curve_combo)
-        self.curve_color_button = _color_button("#000000")
-        form.addRow(_t('Couleur'), self.curve_color_button)
-        self.curve_style_combo = QComboBox()
-        for value, label in LINE_STYLES.items():
-            self.curve_style_combo.addItem(label, value)
-        form.addRow(_t('Ligne'), self.curve_style_combo)
-        self.curve_width_entry = self._number_entry(_t('Épaisseur de la courbe'))
-        form.addRow(_t('Épaisseur'), self.curve_width_entry)
-        self.curve_marker_combo = QComboBox()
-        for value, label in MARKERS.items():
-            self.curve_marker_combo.addItem(label, value)
-        form.addRow(_t('Marqueur'), self.curve_marker_combo)
-        self.curve_markevery_entry = self._number_entry(_t('Espacement des marqueurs'))
-        self.curve_markevery_entry.setPlaceholderText(_t('Auto'))
-        form.addRow(_t('Espacement'), self.curve_markevery_entry)
-        self.curve_offset_entry = self._number_entry(_t('Décalage vertical'))
-        self.curve_offset_entry.setVisible(self._comparison)
-        form.addRow(_t('Décalage Y'), self.curve_offset_entry)
-        enabled = bool(self._selected_curves) if self._comparison else bool(self._signals)
-        page.setEnabled(enabled)
-        if self._comparison:
-            self._load_comparison_curves()
-        elif self._curve_role is not None:
-            self._load_main_curve(self._curve_role)
-        self.tabs.addTab(page, _t('Courbes'))
-
-    @staticmethod
-    def _common(records: list[dict[str, object]], name: str):
-        values = [record.get(name) for record in records]
-        return (
-            values[0]
-            if values and all(value == values[0] for value in values)
-            else MIXED
-        )
-
-    def _load_comparison_curves(self) -> None:
-        records = self._selected_curves
-        color = self._common(records, "color")
-        if color is MIXED:
-            self.curve_color_button.setText(_t('Valeurs mixtes'))
-            self.curve_color_button.setProperty("graphColor", "")
-        else:
-            self.curve_color_button.setText(str(color).upper())
-            self.curve_color_button.setProperty("graphColor", str(color).upper())
-        for combo, name in (
-            (self.curve_style_combo, "line_style"),
-            (self.curve_marker_combo, "marker"),
-        ):
-            value = self._common(records, name)
-            if value is MIXED:
-                combo.insertItem(0, _t('Valeurs mixtes'), None)
-                combo.setCurrentIndex(0)
-            else:
-                combo.setCurrentIndex(max(0, combo.findData(value)))
-        for entry, name in (
-            (self.curve_width_entry, "line_width"),
-            (self.curve_markevery_entry, "markevery"),
-            (self.curve_offset_entry, "y_offset"),
-        ):
-            value = self._common(records, name)
-            entry.setText(
-                ""
-                if value is None or value is MIXED
-                else self._locale.toString(float(value), "g", 12)
-            )
-            if value is MIXED:
-                entry.setPlaceholderText(_t('Valeurs mixtes'))
-
-    def _load_main_curve(self, role: str) -> None:
-        style = self._graph["curve_styles"].get(role, self._curve_defaults(role))
-        color = str(style["color"]).upper()
-        self.curve_color_button.setProperty("graphColor", color)
-        self.curve_color_button.setText(color)
-        self.curve_style_combo.setCurrentIndex(
-            max(0, self.curve_style_combo.findData(style["line_style"]))
-        )
-        self.curve_width_entry.setText(
-            self._locale.toString(float(style["line_width"]), "g", 12)
-        )
-        self.curve_marker_combo.setCurrentIndex(
-            max(0, self.curve_marker_combo.findData(style["marker"]))
-        )
-        markevery = style.get("markevery")
-        self.curve_markevery_entry.setText(
-            "" if markevery is None else str(markevery)
-        )
-
     def _number(self, entry: QLineEdit, name: str, *, positive: bool = False):
         text = entry.text().strip()
         if not text:
             return None
-        value, valid = self._locale.toDouble(text)
+        value, valid = parse_number(text, self._locale)
         if not valid or not math.isfinite(value) or (positive and value <= 0):
             qualifier = _t(' fini et strictement positif') if positive else _t(' fini')
             raise ValueError(_t('{v0} doit être un nombre{v2}.', v0=name, v2=qualifier))
@@ -610,6 +616,9 @@ class GraphSettingsDialog(QDialog):
 
     def _save_axis(self) -> None:
         role = self._axis_role
+        self._save_axis_appearance()
+        if role not in self._limits:
+            return
         minimum = self._number(self.minimum_entry, _t('La limite minimale'))
         maximum = self._number(self.maximum_entry, _t('La limite maximale'))
         scale = str(self.scale_combo.currentData())
@@ -638,6 +647,23 @@ class GraphSettingsDialog(QDialog):
 
     def _load_axis(self, role: str) -> None:
         self._axis_role = role
+        self._load_axis_appearance()
+        self.axis_range_box.setEnabled(role in self._limits)
+        self.paired_axes_button.setEnabled(role in {"x", "x_top"})
+        self.axis_range_box.setToolTip(
+            _t("L'axe supérieur partage les bornes et les valeurs de l'axe inférieur.") if role == 'x_top'
+            else _t("L'échelle de température programmée est automatique.") if role == 'thermal_program' else ''
+        )
+        if role == 'x_top':
+            role = 'x'
+        if role not in self._limits:
+            for entry in (self.axis_label_entry, self.minimum_entry, self.maximum_entry, self.major_step_entry):
+                entry.clear()
+            self.scale_combo.setCurrentIndex(0)
+            self.major_mode_combo.setCurrentIndex(0)
+            self.tick_format_combo.setCurrentIndex(0)
+            self.minor_spin.setValue(0)
+            return
         self.axis_label_entry.setText(str(self._graph["axis_labels"][role]))
         self.scale_combo.setCurrentIndex(
             max(0, self.scale_combo.findData(self._graph["axis_scales"][role]))
@@ -685,70 +711,55 @@ class GraphSettingsDialog(QDialog):
         )
         self.rotation_combo.setEnabled(self._axis_role == "x")
 
-    def _save_main_curve(self) -> None:
-        if self._curve_role is None:
-            return
-        width = self._number(
-            self.curve_width_entry, _t("L'épaisseur"), positive=True
-        )
-        if width is None or not 0.1 <= width <= 10.0:
-            raise ValueError(_t("L'épaisseur doit être comprise entre 0,1 et 10."))
-        markevery = self._number(
-            self.curve_markevery_entry, _t("L'espacement"), positive=True
-        )
-        if markevery is not None and not markevery.is_integer():
-            raise ValueError(_t("L'espacement des marqueurs doit être un entier positif."))
-        self._graph["curve_styles"][self._curve_role] = {
-            "color": str(self.curve_color_button.property("graphColor")),
-            "line_style": str(self.curve_style_combo.currentData()),
-            "line_width": width,
-            "marker": str(self.curve_marker_combo.currentData()),
-            "markevery": None if markevery is None else int(markevery),
-        }
+    def _save_axis_appearance(self) -> None:
+        style = deepcopy(self._graph['axis_appearance'][self._axis_role])
+        style.update(visible=self.axis_visible_check.isChecked(), line_visible=self.axis_line_check.isChecked(),
+                     labels_visible=self.axis_labels_check.isChecked(), color=self._color_value(self.axis_color),
+                     width=self.axis_width_spin.value(), position=self.axis_position_combo.currentData(),
+                     arrow=self.axis_arrow_combo.currentData())
+        for kind, (box, direction, length, color, width) in self.tick_controls.items():
+            tick_length = self._number(length, _t('La longueur des graduations'))
+            tick_width = self._number(width, _t("L'épaisseur des graduations"), positive=True)
+            if (tick_length is not None and not 0 <= tick_length <= 30) or (tick_width is not None and not 0.1 <= tick_width <= 10):
+                raise ValueError(_t('Longueur attendue : 0 à 30 pt ; épaisseur : 0,1 à 10 pt.'))
+            style[kind] = dict(visible=box.isChecked(), direction=direction.currentData(), length=tick_length,
+                               color=self._color_value(color), width=tick_width)
+        self._graph['axis_appearance'][self._axis_role] = style
 
-    def _curve_changed(self, *_args) -> None:
+    def _load_axis_appearance(self) -> None:
+        role = self._axis_role
+        style = self._graph['axis_appearance'][role]
+        self.axis_visible_check.setChecked(style['visible'])
+        self.axis_line_check.setChecked(style['line_visible'])
+        self.axis_labels_check.setChecked(style['labels_visible'])
+        self._set_color(self.axis_color, style['color'])
+        self.axis_width_spin.setValue(style['width'])
+        self.axis_position_combo.clear()
+        sides = (("bottom", "Inférieur"),) if role == "x" else (("top", "Supérieur"),) if role == "x_top" else (("left", "Gauche"), ("right", "Droite"))
+        for value, label in (("auto", "Automatique"), *sides):
+            self.axis_position_combo.addItem(_t(label), value)
+        self.axis_position_combo.setCurrentIndex(self.axis_position_combo.findData(style['position']))
+        self.axis_arrow_combo.setCurrentIndex(self.axis_arrow_combo.findData(style['arrow']))
+        for kind, (box, direction, length, color, width) in self.tick_controls.items():
+            tick = style[kind]
+            box.setChecked(tick['visible'])
+            direction.setCurrentIndex(direction.findData(tick['direction']))
+            self._set_color(color, tick['color'])
+            for entry, key in ((length, 'length'), (width, 'width')):
+                entry.setText('' if tick[key] is None else self._locale.toString(float(tick[key]), 'g', 12))
+
+    def _copy_axis_appearance(self, *, all_axes: bool) -> None:
         try:
-            self._save_main_curve()
+            self._save_axis_appearance()
         except ValueError as exc:
-            self._show_error(_t(str(exc)))
-            with QSignalBlocker(self.curve_combo):
-                self.curve_combo.setCurrentIndex(
-                    max(0, self.curve_combo.findData(self._curve_role))
-                )
+            self._show_error(str(exc))
             return
-        self._curve_role = str(self.curve_combo.currentData())
-        self._load_main_curve(self._curve_role)
-
-    def _comparison_curve_changes(self) -> dict[str, object]:
-        changes: dict[str, object] = {}
-        color = str(self.curve_color_button.property("graphColor"))
-        if color:
-            changes["color"] = color
-        if self.curve_style_combo.currentData() is not None:
-            changes["line_style"] = str(self.curve_style_combo.currentData())
-        if self.curve_marker_combo.currentData() is not None:
-            changes["marker"] = str(self.curve_marker_combo.currentData())
-        for entry, name, positive in (
-            (self.curve_width_entry, "line_width", True),
-            (self.curve_offset_entry, "y_offset", False),
-        ):
-            value = self._number(entry, name, positive=positive)
-            if value is not None:
-                if name == "line_width" and not 0.1 <= value <= 10.0:
-                    raise ValueError(
-                        _t("L'épaisseur doit être comprise entre 0,1 et 10.")
-                    )
-                changes[name] = value
-        markevery = self._number(
-            self.curve_markevery_entry, _t("L'espacement"), positive=True
-        )
-        if markevery is not None:
-            if not markevery.is_integer():
-                raise ValueError(_t("L'espacement des marqueurs doit être un entier positif."))
-            changes["markevery"] = int(markevery)
-        elif self.curve_markevery_entry.placeholderText() != _t('Valeurs mixtes'):
-            changes["markevery"] = None
-        return changes
+        appearances = self._graph['axis_appearance']
+        for role in (appearances if all_axes else ('x', 'x_top')):
+            position = appearances[role]['position']
+            appearances[role] = deepcopy(appearances[self._axis_role])
+            appearances[role]['position'] = position
+        self.validation_label.hide()
 
     def _build_reference_lines_tab(self) -> None:
         page = QWidget()
@@ -784,6 +795,58 @@ class GraphSettingsDialog(QDialog):
         self._refresh_lines()
         self.tabs.addTab(page, _t('Lignes de référence'))
 
+    def _build_spacing_tab(self) -> None:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        margins_box = QGroupBox(_t('Marges du graphique'))
+        form = QFormLayout(margins_box)
+        self.auto_margins_check = QCheckBox(_t('Espacement automatique'))
+        form.addRow(self.auto_margins_check)
+        self.margin_spins = {}
+        for side, label in (("left", "Gauche (%)"), ("right", "Droite (%)"), ("bottom", "Bas (%)"), ("top", "Haut (%)")):
+            spin = QDoubleSpinBox()
+            spin.setRange(0, 100)
+            spin.setDecimals(1)
+            self.auto_margins_check.toggled.connect(spin.setDisabled)
+            self.margin_spins[side] = spin
+            form.addRow(_t(label), spin)
+        self._load_margins()
+        layout.addWidget(margins_box)
+        spacing_box = QGroupBox(_t('Espacement des axes'))
+        spacing_group = QFormLayout(spacing_box)
+        self.tg_position_spin = QDoubleSpinBox()
+        self.tg_position_spin.setRange(1.0, 1.20)
+        self.dtg_position_spin = QDoubleSpinBox()
+        self.dtg_position_spin.setRange(1.04, 1.40)
+        self.tg_position_spin.setValue(float(self._graph["axis_spacing"]["tg_right_position"]))
+        self.dtg_position_spin.setValue(float(self._graph["axis_spacing"]["dtg_right_position"]))
+        spacing_group.addRow(_t('Position externe TG'), self.tg_position_spin)
+        spacing_group.addRow(_t('Position externe dTG'), self.dtg_position_spin)
+        self.spacing_axis_combo = QComboBox()
+        for role, label in AXIS_LABELS.items():
+            self.spacing_axis_combo.addItem(_t(label), role)
+        self.label_pad_spin = QDoubleSpinBox()
+        self.label_pad_spin.setRange(0.0, 60.0)
+        self.tick_pad_spin = QDoubleSpinBox()
+        self.tick_pad_spin.setRange(0.0, 60.0)
+        self.spacing_axis_combo.currentIndexChanged.connect(self._load_spacing_axis)
+        spacing_group.addRow(_t('Axe espacé'), self.spacing_axis_combo)
+        spacing_group.addRow(_t('Marge du nom'), self.label_pad_spin)
+        spacing_group.addRow(_t('Marge des graduations'), self.tick_pad_spin)
+        self._load_spacing_axis()
+        layout.addWidget(spacing_box)
+
+        layout.addStretch()
+        self._scroll_tab(page, 'Espacement')
+
+    def _load_margins(self) -> None:
+        margins = self._graph['layout_margins']
+        self.auto_margins_check.setChecked(margins is None)
+        values = margins or dict(left=0.125, right=0.9, bottom=0.11, top=0.88)
+        for side, spin in self.margin_spins.items():
+            spin.setValue(100 * (1 - values[side] if side in {'right', 'top'} else values[side]))
+            spin.setEnabled(margins is not None)
+
     def _build_advanced_tab(self) -> None:
         page = QScrollArea()
         page.setWidgetResizable(True)
@@ -812,34 +875,10 @@ class GraphSettingsDialog(QDialog):
         self.duplicate_annotation_button.clicked.connect(self._duplicate_annotation)
         self.remove_annotation_button.clicked.connect(self._remove_annotation)
 
-        spacing_box = QGroupBox(_t('Espacement des axes'))
-        spacing_group = QFormLayout(spacing_box)
-        self.tg_position_spin = QDoubleSpinBox()
-        self.tg_position_spin.setRange(1.0, 1.20)
-        self.dtg_position_spin = QDoubleSpinBox()
-        self.dtg_position_spin.setRange(1.04, 1.40)
-        self.tg_position_spin.setValue(float(self._graph["axis_spacing"]["tg_right_position"]))
-        self.dtg_position_spin.setValue(float(self._graph["axis_spacing"]["dtg_right_position"]))
-        spacing_group.addRow(_t('Position externe TG'), self.tg_position_spin)
-        spacing_group.addRow(_t('Position externe dTG'), self.dtg_position_spin)
-        self.spacing_axis_combo = QComboBox()
-        for role, label in AXIS_LABELS.items():
-            self.spacing_axis_combo.addItem(label, role)
-        self.label_pad_spin = QDoubleSpinBox()
-        self.label_pad_spin.setRange(0.0, 60.0)
-        self.tick_pad_spin = QDoubleSpinBox()
-        self.tick_pad_spin.setRange(0.0, 60.0)
-        self.spacing_axis_combo.currentIndexChanged.connect(self._load_spacing_axis)
-        spacing_group.addRow(_t('Axe espacé'), self.spacing_axis_combo)
-        spacing_group.addRow(_t('Marge du nom'), self.label_pad_spin)
-        spacing_group.addRow(_t('Marge des graduations'), self.tick_pad_spin)
-        self._load_spacing_axis()
-        layout.addWidget(spacing_box)
-
         fonts_box = QGroupBox(_t('Polices'))
         fonts_group = QFormLayout(fonts_box)
         self.font_target_combo = QComboBox()
-        for target, label in (("general", _t('Valeur générale')), ("title", _t('Titre')), ("axes", _t('Noms des axes')), ("ticks", _t('Graduations')), ("legend", _t('Légende')), ("annotations", _t('Annotations'))):
+        for target, label in (("general", _t('Valeur générale')), ("title", _t('Titre')), ("axes", _t('Noms des axes')), ("ticks", _t('Graduations')), ("annotations", _t('Annotations'))):
             self.font_target_combo.addItem(label, target)
         self.font_family_combo = QComboBox()
         self.font_family_combo.addItem(_t('Police système'), "")
@@ -891,6 +930,12 @@ class GraphSettingsDialog(QDialog):
         self.tick_pad_spin.setValue(float(spacing["tick_pads"][role]))
 
     def _save_spacing(self) -> None:
+        margins = None
+        if not self.auto_margins_check.isChecked():
+            margins = {side: (1 - spin.value() / 100 if side in {'right', 'top'} else spin.value() / 100) for side, spin in self.margin_spins.items()}
+            if margins['left'] >= margins['right'] or margins['bottom'] >= margins['top']:
+                raise ValueError(_t('Les marges doivent laisser une surface de tracé positive.'))
+        self._graph['layout_margins'] = margins
         role = str(self.spacing_axis_combo.currentData())
         spacing = self._graph["axis_spacing"]
         if self.dtg_position_spin.value() < self.tg_position_spin.value() + 0.04:
@@ -952,8 +997,9 @@ class GraphSettingsDialog(QDialog):
         self.annotations_table.setRowCount(len(annotations))
         for row, annotation in enumerate(annotations):
             self.annotations_table.setItem(row, 0, QTableWidgetItem(str(annotation["text"])))
-            self.annotations_table.setItem(row, 1, QTableWidgetItem(AXIS_LABELS[str(annotation["axis"])]))
-            self.annotations_table.setItem(row, 2, QTableWidgetItem(str(annotation["coordinate_system"])))
+            self.annotations_table.setItem(row, 1, QTableWidgetItem(_t(AXIS_LABELS[str(annotation["axis"])])))
+            coordinates = _t('Données') if annotation["coordinate_system"] == "data" else _t("Fraction de l'axe")
+            self.annotations_table.setItem(row, 2, QTableWidgetItem(coordinates))
 
     def _annotation_row(self) -> int | None:
         rows = self.annotations_table.selectionModel().selectedRows()
@@ -1011,6 +1057,7 @@ class GraphSettingsDialog(QDialog):
             self._show_error(_t('Export du modèle impossible : {v1}', v1=exc))
 
     def _restore_advanced_controls(self) -> None:
+        self._load_margins()
         self.tg_position_spin.setValue(float(self._graph["axis_spacing"]["tg_right_position"]))
         self.dtg_position_spin.setValue(float(self._graph["axis_spacing"]["dtg_right_position"]))
         self._spacing_role = None
@@ -1020,14 +1067,8 @@ class GraphSettingsDialog(QDialog):
 
     def _restore_template_controls(self) -> None:
         self.title_entry.setText(str(self._graph["title"]))
-        self.grid_major_check.setChecked(bool(self._graph["grid_major"]))
-        self.grid_minor_check.setChecked(bool(self._graph["grid_minor"]))
-        self.grid_axis_combo.setCurrentIndex(max(0, self.grid_axis_combo.findData(self._graph["grid_axis"])))
-        self.legend_check.setChecked(bool(self._graph["legend_visible"]))
-        self.legend_position_combo.setCurrentIndex(max(0, self.legend_position_combo.findData(self._graph["legend_position"])))
+        self._load_grid()
         self._load_axis(self._axis_role)
-        if not self._comparison and self._curve_role is not None:
-            self._load_main_curve(self._curve_role)
         self._refresh_lines()
         self._restore_advanced_controls()
 
@@ -1052,8 +1093,8 @@ class GraphSettingsDialog(QDialog):
                     _t('Verticale') if line["orientation"] == "vertical" else _t('Horizontale')
                 ),
             )
-            self.lines_table.setItem(row, 2, QTableWidgetItem(AXIS_LABELS[line["axis"]]))
-            self.lines_table.setItem(row, 3, QTableWidgetItem(f"{line['value']:g}"))
+            self.lines_table.setItem(row, 2, QTableWidgetItem(_t(AXIS_LABELS[line["axis"]])))
+            self.lines_table.setItem(row, 3, QTableWidgetItem(decimal_text(f"{line['value']:g}")))
             self.lines_table.setItem(row, 4, QTableWidgetItem(str(line["label"])))
 
     def _sync_line_visibility(self) -> None:
@@ -1113,26 +1154,16 @@ class GraphSettingsDialog(QDialog):
 
     def _collect(self) -> dict[str, object]:
         self._save_axis()
+        self._save_grid()
         self._save_advanced()
         self._graph["title"] = self.title_entry.text()
-        self._graph["grid_major"] = self.grid_major_check.isChecked()
-        self._graph["grid_minor"] = self.grid_minor_check.isChecked()
-        self._graph["grid_axis"] = str(self.grid_axis_combo.currentData())
-        self._graph["legend_visible"] = self.legend_check.isChecked()
-        self._graph["legend_position"] = str(
-            self.legend_position_combo.currentData()
-        )
         self._sync_line_visibility()
-        if self._comparison:
-            self._curve_changes = self._comparison_curve_changes()
-        else:
-            self._save_main_curve()
         return {
             "graph": deepcopy(self._graph),
             "limits": deepcopy(self._limits),
             "alignment_mode": str(self.alignment_combo.currentData()),
-            "show_offsets_in_legend": self.offsets_legend_check.isChecked(),
-            "curve_changes": deepcopy(self._curve_changes),
+            "show_offsets_in_legend": self._show_offsets_in_legend,
+            "curve_changes": {},
         }
 
     def _show_error(self, message: str) -> None:
@@ -1156,38 +1187,14 @@ class GraphSettingsDialog(QDialog):
             self.accept()
 
     def _reset(self) -> None:
+        previous = self._graph
         title = _t('Comparaison des expériences') if self._comparison else ""
         self._graph = default_graph_settings(title=title)
-        self._limits = {
-            axis: [None, None] for axis in ("x", "tg", "dtg", "heat_flow")
-        }
-        self.title_entry.setText(title)
-        self.grid_major_check.setChecked(True)
-        self.grid_minor_check.setChecked(False)
-        self.grid_axis_combo.setCurrentIndex(
-            max(0, self.grid_axis_combo.findData("both"))
-        )
-        self.legend_check.setChecked(True)
-        self.legend_position_combo.setCurrentIndex(
-            max(0, self.legend_position_combo.findData("best"))
-        )
+        # These settings have dedicated editors and are outside this dialog.
+        for key in ("legend_visible", "legend_position", "legend_style", "curve_styles"):
+            self._graph[key] = deepcopy(previous[key])
+        if "legend" in previous["fonts"]["overrides"]:
+            self._graph["fonts"]["overrides"]["legend"] = deepcopy(previous["fonts"]["overrides"]["legend"])
+        self._limits = {axis: [None, None] for axis in ("x", "tg", "dtg", "heat_flow")}
         self.alignment_combo.setCurrentIndex(0)
-        self.offsets_legend_check.setChecked(False)
-        self._load_axis(str(self.axis_combo.currentData()))
-        if self._comparison:
-            self.curve_color_button.setText(_t('Valeurs mixtes'))
-            self.curve_color_button.setProperty("graphColor", "")
-            self.curve_style_combo.setCurrentIndex(
-                max(0, self.curve_style_combo.findData("-"))
-            )
-            self.curve_width_entry.setText("1.4")
-            self.curve_marker_combo.setCurrentIndex(
-                max(0, self.curve_marker_combo.findData(""))
-            )
-            self.curve_markevery_entry.clear()
-            self.curve_markevery_entry.setPlaceholderText(_t('Auto'))
-            self.curve_offset_entry.setText("0")
-        elif self._curve_role is not None:
-            self._load_main_curve(self._curve_role)
-        self._refresh_lines()
-        self._restore_advanced_controls()
+        self._restore_template_controls()

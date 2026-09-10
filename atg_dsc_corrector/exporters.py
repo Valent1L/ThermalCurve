@@ -1,20 +1,17 @@
-"""Exports tabulaires et manifestes JSON traçables."""
+"""Exports Excel traçables / Traceable Excel exports."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, time, timezone
-import json
-import logging
-import os
+from datetime import datetime, timezone
 from pathlib import Path
 import re
 import tempfile
 from typing import Any, Iterable
 
-import numpy as np
 import pandas as pd
 
+from .i18n import tr as _t
 from . import APP_NAME
 from .models import CorrectionResult, ExperimentData, is_celsius_unit, same_path as _same_path
 from .labels import format_unit
@@ -29,7 +26,6 @@ class ExportError(ValueError):
 @dataclass(frozen=True, slots=True)
 class ExportedFiles:
     data_path: Path
-    json_path: Path
 
 
 def _validate_destinations(
@@ -59,104 +55,6 @@ def _temporary_path(target: Path) -> Path:
     )
     handle.close()
     return Path(handle.name)
-
-
-def _publish_pair(
-    data_temp: Path,
-    json_temp: Path,
-    data_path: Path,
-    json_path: Path,
-) -> None:
-    pairs = ((data_temp, data_path), (json_temp, json_path))
-    backups: dict[Path, Path] = {}
-    published: list[Path] = []
-    try:
-        for _, target in pairs:
-            if target.exists():
-                backup = _temporary_path(target)
-                backup.unlink()
-                os.replace(target, backup)
-                backups[target] = backup
-        for temporary, target in pairs:
-            os.replace(temporary, target)
-            published.append(target)
-    except OSError as exc:
-        rollback_errors: list[str] = []
-        for target in published:
-            try:
-                target.unlink(missing_ok=True)
-            except OSError as rollback_exc:
-                rollback_errors.append(f"suppression de {target}: {rollback_exc}")
-        for target, backup in backups.items():
-            try:
-                target.unlink(missing_ok=True)
-                os.replace(backup, target)
-            except OSError as rollback_exc:
-                rollback_errors.append(
-                    f"restauration de {target} depuis {backup}: {rollback_exc}"
-                )
-        detail = (
-            " Restauration incomplète : " + " ; ".join(rollback_errors)
-            if rollback_errors
-            else ""
-        )
-        raise ExportError(f"Publication incomplète annulée : {exc}.{detail}") from exc
-    finally:
-        data_temp.unlink(missing_ok=True)
-        json_temp.unlink(missing_ok=True)
-    for backup in backups.values():
-        try:
-            backup.unlink(missing_ok=True)
-        except OSError as exc:
-            # Les deux sorties sont publiées ; seul le nettoyage a échoué.
-            logging.getLogger(__name__).warning(
-                "Export terminé, sauvegarde temporaire non supprimée : %s (%s)",
-                backup,
-                exc,
-            )
-
-
-def _write_table_and_json(
-    frame: pd.DataFrame,
-    data_path: Path,
-    json_path: Path,
-    json_text: str,
-    *,
-    kind: str,
-    na_rep: str = "",
-) -> None:
-    data_temp = _temporary_path(data_path)
-    try:
-        json_temp = _temporary_path(json_path)
-    except OSError:
-        data_temp.unlink(missing_ok=True)
-        raise
-    try:
-        with data_temp.open(
-            "w",
-            encoding="utf-8-sig" if kind == "csv" else "utf-8",
-            newline="",
-        ) as stream:
-            frame.to_csv(
-                stream,
-                index=False,
-                sep=";" if kind == "csv" else "\t",
-                decimal="," if kind == "csv" else ".",
-                na_rep=na_rep,
-                lineterminator="\n",
-            )
-            stream.flush()
-            os.fsync(stream.fileno())
-        with json_temp.open("w", encoding="utf-8", newline="\n") as stream:
-            stream.write(json_text)
-            stream.flush()
-            os.fsync(stream.fileno())
-        _publish_pair(data_temp, json_temp, data_path, json_path)
-    except OSError as exc:
-        raise ExportError(f"Impossible de préparer l'export : {exc}") from exc
-    finally:
-        data_temp.unlink(missing_ok=True)
-        json_temp.unlink(missing_ok=True)
 
 
 # Ces identifiants constituent le contrat stable des exports de zones.
@@ -190,8 +88,8 @@ def _plain_unit(value: str, reference_name: str = "") -> str:
 
 
 def _axis_unit_for_export(axis_type: str, value: str) -> str:
-    if axis_type in {"time_s", "time_min"}:
-        return {"time_s": "s", "time_min": "min"}[axis_type]
+    if axis_type in {"time_s", "time_min", "time_h"}:
+        return {"time_s": "s", "time_min": "min", "time_h": "h"}[axis_type]
     return "degC" if is_celsius_unit(value) else _plain_unit(value)
 
 
@@ -318,20 +216,6 @@ def _source_reference(source: ExperimentData) -> dict[str, Any]:
     }
 
 
-def _json_value(value: Any) -> Any:
-    if isinstance(value, Path):
-        return str(value)
-    if isinstance(value, np.generic):
-        return value.item()
-    if isinstance(value, pd.Timestamp):
-        return value.isoformat()
-    if isinstance(value, (datetime, date, time)):
-        return value.isoformat()
-    if isinstance(value, float) and not np.isfinite(value):
-        return None
-    raise TypeError(f"Type non sérialisable: {type(value).__name__}")
-
-
 def _metadata_document(result: CorrectionResult, data_path: Path) -> dict[str, Any]:
     experiment = result.experiment
     blank = result.blank
@@ -394,91 +278,54 @@ def _metadata_document(result: CorrectionResult, data_path: Path) -> dict[str, A
     }
 
 
-def _ordered_export_data(result: CorrectionResult) -> pd.DataFrame:
-    columns: list[str] = list(result.experiment.original_columns)
-    for column in ("Temps_s", "Dans_zone_commune", *result.corrected_columns):
-        if column in result.data and column not in columns:
-            columns.append(column)
-    return result.data.loc[:, columns].copy()
-
-
 def export_result(
-    result: CorrectionResult,
-    destination: str | Path,
-    file_format: str,
-    *,
-    protected_paths: Iterable[str | Path] = (),
-    overwrite: bool = False,
+    result: CorrectionResult, destination: str | Path, file_format: str,
+    *, protected_paths: Iterable[str | Path] = (), overwrite: bool = False,
 ) -> ExportedFiles:
-    """Exporte un résultat en CSV français ou TSV international et un JSON associé."""
+    """Exporte les résultats, les mesures initiales et le blanc dans trois feuilles."""
+    from .normalization import resolve_working_signal
+    from .workbook_export import source_blocks, write_workbook
 
-    kind = file_format.lower().lstrip(".")
-    if kind not in {"csv", "tsv"}:
-        raise ExportError("Le format d'export doit être 'csv' ou 'tsv'.")
-    path = Path(destination)
-    expected_suffix = f".{kind}"
-    if path.suffix.lower() != expected_suffix:
-        path = path.with_suffix(expected_suffix)
-    json_path = path.with_suffix(".json")
-    sources = [result.experiment.source_path]
-    if result.blank is not None:
-        sources.append(result.blank.source_path)
-    _validate_destinations(
-        (path, json_path), (*sources, *protected_paths), overwrite=overwrite
-    )
-    frame = _ordered_export_data(result)
-    json_text = json.dumps(
-        _metadata_document(result, path),
-        ensure_ascii=False,
-        indent=2,
-        default=_json_value,
-        allow_nan=False,
-    ) + "\n"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    _write_table_and_json(
-        frame, path, json_path, json_text, kind=kind
-    )
-    return ExportedFiles(path, json_path)
+    columns = ["Temps_s"]
+    units = {**result.experiment.units, "Temps_s": "s"}
+    for role in ("furnace_temperature", "sample_temperature"):
+        column = getattr(result.experiment.mapping, role)
+        if column and column in result.data and column not in columns:
+            columns.append(column)
+    for signal in ("tg", "dtg", "heat_flow"):
+        column, _state = resolve_working_signal(result, signal)
+        if column and column not in columns:
+            columns.append(column)
+            units[column] = result.experiment.unit_for(signal)
+    columns.extend(column for column in result.corrected_columns
+                   if column != "Dans_zone_commune" and column not in columns)
+    units.update(result.parameters.get("normalization", {}).get("derived_units_text", {}))
+    frame = result.data.loc[:, columns].copy()
+    sources = [source.source_path for source in (result.experiment, result.blank) if source is not None]
+    path = write_workbook(destination, file_format, [
+        ("Données corrigées", [(result.experiment.name, frame, {
+            **_metadata_document(result, Path(destination).with_suffix(".xlsx")), "units": units,
+        })]),
+        ("Données initiales", source_blocks([result.experiment])),
+        ("Données du blanc", source_blocks([result.blank])),
+    ], protected_paths=(*sources, *protected_paths), overwrite=overwrite)
+    return ExportedFiles(path)
 
 
 def export_zone_results(
-    rows: Iterable[ZoneQuantification],
-    destination: str | Path,
-    file_format: str,
-    *,
-    representations: dict[str, str] | None = None,
-    protected_paths: Iterable[str | Path] = (),
-    overwrite: bool = False,
+    rows: Iterable[ZoneQuantification], destination: str | Path, file_format: str,
+    *, representations: dict[str, str] | None = None,
+    protected_paths: Iterable[str | Path] = (), overwrite: bool = False,
 ) -> ExportedFiles:
     """Exporte les quantifications recalculées, une ligne par expérience-zone."""
+    from .workbook_export import write_workbook
 
-    kind = file_format.lower().lstrip(".")
-    if kind not in {"csv", "tsv"}:
-        raise ExportError("Le format d'export doit être 'csv' ou 'tsv'.")
-    path = Path(destination)
-    if path.suffix.lower() != f".{kind}":
-        path = path.with_suffix(f".{kind}")
-    json_path = path.with_suffix(".json")
-    _validate_destinations(
-        (path, json_path), protected_paths, overwrite=overwrite
-    )
-    zone_rows = list(rows)
-    frame = pd.DataFrame(
-        [_zone_row(row) for row in zone_rows],
-        columns=ZONE_RESULT_COLUMNS,
-    )
-    json_text = json.dumps(
-        _zone_metadata_document(zone_rows, path, representations),
-        ensure_ascii=False,
-        indent=2,
-        default=_json_value,
-        allow_nan=False,
-    ) + "\n"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    _write_table_and_json(
-        frame, path, json_path, json_text, kind=kind, na_rep=""
-    )
-    return ExportedFiles(path, json_path)
+    rows = list(rows)
+    frame = pd.DataFrame([_zone_row(row) for row in rows], columns=ZONE_RESULT_COLUMNS)
+    path = write_workbook(destination, file_format, [
+        ("Zones", [("Zones", frame, _zone_metadata_document(rows, Path(destination), representations))]),
+    ], protected_paths=protected_paths, overwrite=overwrite)
+    return ExportedFiles(path)
 
 
 def _safe_stem(value: str) -> str:
@@ -497,8 +344,8 @@ def export_batch(
     """Exporte séparément chaque expérience dans un même dossier."""
 
     kind = file_format.lower().lstrip(".")
-    if kind not in {"csv", "tsv"}:
-        raise ExportError("Le format d'export doit être 'csv' ou 'tsv'.")
+    if kind != "xlsx":
+        raise ExportError(_t("Le format d'export doit être XLSX."))
     folder = Path(directory)
     results = list(results)
     protected_paths = tuple(protected_paths)
@@ -517,11 +364,7 @@ def export_batch(
         if source is not None
     ]
     _validate_destinations(
-        [
-            path
-            for data_path in destinations
-            for path in (data_path, data_path.with_suffix(".json"))
-        ],
+        destinations,
         (*sources, *protected_paths),
         overwrite=overwrite,
     )
@@ -539,9 +382,7 @@ def export_batch(
             )
         except Exception as exc:
             produced = ", ".join(
-                str(path)
-                for output in outputs
-                for path in (output.data_path, output.json_path)
+                str(output.data_path) for output in outputs
             ) or "aucune"
             raise ExportError(
                 f"Export du lot interrompu. Sorties déjà produites : {produced}. "

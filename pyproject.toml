@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "atg-dsc-corrector"
-version = "1.0.0"
+version = "1.0.1"
 description = "ThermalCurve - Analyse thermique / Thermal analysis (ATG-DSC)"
 authors = [{name = "Valentin Legrand", email = "valentin.legrand@emse.fr"}]
 license = "PolyForm-Noncommercial-1.0.0"
@@ -15,6 +15,7 @@ dependencies = [
     "matplotlib>=3.11",
     "numpy>=2.5",
     "openpyxl>=3.1.5",
+    "XlsxWriter==3.2.9",
     "pandas>=3.0",
     "xlrd>=2.0.2",
 ]
@@ -40,4 +41,4 @@ testpaths = ["tests"]
 include = ["atg_dsc_corrector*"]
 
 [tool.setuptools.package-data]
-atg_dsc_corrector = ["resources/mendeleev/v0.20.0/*"]
+atg_dsc_corrector = ["resources/mendeleev/v0.20.0/*", "resources/thermalcurve.ico", "resources/thermalcurve.svg"]

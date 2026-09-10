@@ -15,14 +15,16 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFormLayout,
     QGroupBox,
-    QHBoxLayout,
     QLabel,
     QLineEdit,
     QSizePolicy,
+    QSpinBox,
     QWidget,
 )
 
 from atg_dsc_corrector.normalization import NormalizationSettings
+from .flow_layout import FlowLayout
+from .number_format import number_locale as application_number_locale
 
 
 TG_CHOICES = (
@@ -39,6 +41,7 @@ DTG_UNIT_OPTIONS = (
     (_t('Source'), "source"),
     ("min⁻¹", "per_minute"),
     ("s⁻¹", "per_second"),
+    ("h⁻¹", "per_hour"),
 )
 
 DTG_REPRESENTATION_CHOICES = (
@@ -49,15 +52,15 @@ DTG_REPRESENTATION_CHOICES = (
 
 HEAT_FLOW_CHOICES = (
     (_t('Original (mW)'), "raw"),
-    (_t('Remis à zéro (mW)'), "zero_mw"),
+    (_t('Relatif à la référence (mW)'), "zero_mw"),
     ("W", "w"),
-    (_t('Remis à zéro (W)'), "zero_w"),
+    (_t('Relatif à la référence (W)'), "zero_w"),
     ("mW·mg⁻¹", "mw_mg"),
-    (_t('Remis à zéro (mW·mg⁻¹)'), "zero_mw_mg"),
+    (_t('Relatif à la référence (mW·mg⁻¹)'), "zero_mw_mg"),
     ("W·g⁻¹", "w_g"),
-    (_t('Remis à zéro (W·g⁻¹)'), "zero_w_g"),
+    (_t('Relatif à la référence (W·g⁻¹)'), "zero_w_g"),
     ("W·mg⁻¹", "w_mg"),
-    (_t('Remis à zéro (W·mg⁻¹)'), "zero_w_mg"),
+    (_t('Relatif à la référence (W·mg⁻¹)'), "zero_w_mg"),
 )
 
 REFERENCE_MODE_CHOICES = (
@@ -67,6 +70,8 @@ REFERENCE_MODE_CHOICES = (
 
 REFERENCE_AXIS_CHOICES = (
     (_t('Temps (s)'), "time_s"),
+    (_t('Temps (min)'), "time_min"),
+    (_t('Temps (h)'), "time_h"),
     (_t('Température du four'), "furnace_temperature"),
     (_t("Température de l'échantillon"), "sample_temperature"),
 )
@@ -87,6 +92,8 @@ def _combo(choices: tuple[tuple[str, str], ...], accessible_name: str) -> QCombo
     combo = QComboBox()
     combo.setAccessibleName(accessible_name)
     combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+    combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+    combo.setMinimumContentsLength(8)
     for text, value in choices:
         combo.addItem(text, value)
     return combo
@@ -102,7 +109,7 @@ def _optional_number(
     stripped = text.strip()
     if not stripped:
         return None
-    value, valid = (number_locale or QLocale()).toDouble(stripped)
+    value, valid = (number_locale or application_number_locale()).toDouble(stripped)
     if not valid:
         try:
             value = float(stripped.replace(",", "."))
@@ -128,7 +135,8 @@ class NormalizationPanel(QGroupBox):
         self._experiment_loaded = False
         self._initial_mass_mg: float | None = None
         self._initial_mass_source: str | None = None
-        self.number_locale = QLocale()
+        self.number_locale = application_number_locale()
+        self.setLocale(self.number_locale)
         layout = QFormLayout(self)
         layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
@@ -140,7 +148,7 @@ class NormalizationPanel(QGroupBox):
         layout.addRow("TG", self.tg_combo)
 
         dtg_units = QWidget()
-        dtg_units_layout = QHBoxLayout(dtg_units)
+        dtg_units_layout = FlowLayout(dtg_units)
         dtg_units_layout.setContentsMargins(0, 0, 0, 0)
         dtg_units_layout.setSpacing(8)
         dtg_units_layout.addWidget(QLabel(_t('Unité :')))
@@ -154,7 +162,6 @@ class NormalizationPanel(QGroupBox):
             self.dtg_unit_checks[value] = checkbox
             dtg_units_layout.addWidget(checkbox)
         self.dtg_unit_checks["source"].setChecked(True)
-        dtg_units_layout.addStretch(1)
         layout.addRow("dTG", dtg_units)
 
         self.dtg_combo = _combo(
@@ -167,6 +174,15 @@ class NormalizationPanel(QGroupBox):
         self.calculate_dtg_checkbox = QCheckBox(_t('Calculer dTG si elle est absente'))
         self.calculate_dtg_checkbox.setObjectName("calculateDtgCheckBox")
         layout.addRow(self.calculate_dtg_checkbox)
+        self.dtg_smoothing_spin = QSpinBox()
+        self.dtg_smoothing_spin.setObjectName("dtgSmoothingPoints")
+        self.dtg_smoothing_spin.setRange(1, 100001)
+        self.dtg_smoothing_spin.setSingleStep(2)
+        self.dtg_smoothing_spin.setSpecialValueText(_t('Sans lissage'))
+        self.dtg_smoothing_spin.setKeyboardTracking(False)
+        self.dtg_smoothing_spin.setAccessibleName(_t('Lissage dTG calculée (points)'))
+        self.dtg_smoothing_spin.setToolTip(_t('Moyenne glissante centrée : fenêtre impaire (3, 5, 7…). 1 désactive le lissage. Aux extrémités, seuls les points disponibles sont utilisés. La dTG présente dans le fichier reste inchangée.'))
+        layout.addRow(_t('Lissage dTG calculée (points)'), self.dtg_smoothing_spin)
 
         self.heat_flow_combo = _combo(
             HEAT_FLOW_CHOICES,
@@ -226,6 +242,10 @@ class NormalizationPanel(QGroupBox):
             _t('Référence zéro du Flux de chaleur'),
         )
         self.reference_mode_combo.setObjectName("heatFlowReferenceModeCombo")
+        self.reference_mode_combo.setToolTip(_t(
+            "Soustrait au flux de chaleur le premier point valide ou la moyenne de la plage choisie. "
+            "Permet de comparer les variations par rapport à cette référence."
+        ))
         layout.addRow(_t('Zéro Flux de chaleur'), self.reference_mode_combo)
 
         self.reference_axis_combo = _combo(
@@ -269,6 +289,7 @@ class NormalizationPanel(QGroupBox):
             lambda _button, checked: checked and self._controls_changed()
         )
         self.calculate_dtg_checkbox.toggled.connect(self._controls_changed)
+        self.dtg_smoothing_spin.valueChanged.connect(self._controls_changed)
         self.use_initial_mass_checkbox.toggled.connect(self._controls_changed)
         for entry in (
             self.initial_mass_entry,
@@ -294,6 +315,7 @@ class NormalizationPanel(QGroupBox):
         self.changed.emit()
 
     def _update_visibility(self) -> None:
+        self._layout.setRowVisible(self.dtg_smoothing_spin, self.calculate_dtg_checkbox.isChecked())
         tg_mode = str(self.tg_combo.currentData())
         dtg_representation = str(self.dtg_combo.currentData())
         heat_mode = (
@@ -403,6 +425,8 @@ class NormalizationPanel(QGroupBox):
                 units.append("dTG : mg·min⁻¹·mg⁻¹")
             elif dtg_unit_mode == "per_second":
                 units.append("dTG : mg·s⁻¹·mg⁻¹")
+            elif dtg_unit_mode == "per_hour":
+                units.append("dTG : mg·h⁻¹·mg⁻¹")
             else:
                 units.append(_t('dTG : unité source·mg⁻¹'))
         elif dtg_representation == "percent":
@@ -410,12 +434,16 @@ class NormalizationPanel(QGroupBox):
                 units.append("dTG : %·min⁻¹")
             elif dtg_unit_mode == "per_second":
                 units.append("dTG : %·s⁻¹")
+            elif dtg_unit_mode == "per_hour":
+                units.append("dTG : %·h⁻¹")
             else:
                 units.append(_t('dTG : % par unité source'))
         elif dtg_unit_mode == "per_minute":
             units.append("dTG : mg·min⁻¹")
         elif dtg_unit_mode == "per_second":
             units.append("dTG : mg·s⁻¹")
+        elif dtg_unit_mode == "per_hour":
+            units.append("dTG : mg·h⁻¹")
         heat_units = {
             "mw_mg": "mW·mg⁻¹",
             "zero_mw_mg": "mW·mg⁻¹",
@@ -493,6 +521,7 @@ class NormalizationPanel(QGroupBox):
             reference_name=reference_name,
             use_initial_mass_as_reference=use_initial_mass,
             calculate_dtg_if_missing=self.calculate_dtg_checkbox.isChecked(),
+            dtg_smoothing_points=self.dtg_smoothing_spin.value(),
             allow_missing_initial_mass=True,
         )
         return settings, manual_mass
@@ -551,6 +580,7 @@ class NormalizationPanel(QGroupBox):
             self.calculate_dtg_checkbox.setChecked(
                 bool(normalization.get("calculate_dtg_if_missing", False))
             )
+            self.dtg_smoothing_spin.setValue(normalization.get("dtg_smoothing_points", 1))
             self.clear_validation()
             self._update_mass_provenance()
             self._update_visibility()
@@ -583,6 +613,7 @@ class NormalizationPanel(QGroupBox):
             *self.dtg_unit_checks.values(),
             self.dtg_combo,
             self.calculate_dtg_checkbox,
+            self.dtg_smoothing_spin,
             self.heat_flow_combo,
             self.initial_mass_entry,
             self.use_initial_mass_checkbox,

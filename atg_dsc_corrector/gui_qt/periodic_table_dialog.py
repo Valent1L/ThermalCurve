@@ -7,7 +7,7 @@ from atg_dsc_corrector.i18n import language, tr as _t
 import unicodedata
 from html import escape
 
-from PySide6.QtCore import QEvent, QLocale, QSize, Qt
+from PySide6.QtCore import QEvent, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QKeySequence, QPalette, QPen, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -149,7 +149,9 @@ class PeriodicTableDialog(QDialog):
         }
         self.current_entry: PeriodicTableEntry | None = None
         self._items_by_number: dict[int, tuple[QTableWidget, QTableWidgetItem]] = {}
-        self._locale = QLocale(QLocale.Language.French, QLocale.Country.France)
+        from .number_format import number_locale
+        self._locale = number_locale()
+        self.setLocale(self._locale)
         self.setObjectName("periodicTable")
         self.setStyleSheet("""
             QDialog#periodicTable, QWidget#periodicGrid, QWidget#periodicTiles,

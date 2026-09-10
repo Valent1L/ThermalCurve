@@ -14,6 +14,10 @@ import unicodedata
 import pandas as pd
 
 
+TIME_UNIT_SECONDS = {"s": 1, "min": 60, "h": 3600}
+TIME_AXIS_SECONDS = {"time_" + unit: factor for unit, factor in TIME_UNIT_SECONDS.items()}
+
+
 CANONICAL_FIELDS = (
     "time",
     "furnace_temperature",
@@ -78,6 +82,7 @@ def unit_key(unit: str) -> str:
     text = re.sub(r"s-1", "/s", text)
     text = re.sub(r"(minutes?|mins?)-?1", "/min", text)
     text = re.sub(r"min-1", "/min", text)
+    text = re.sub(r"(?:hours?|heures?|hrs?|h)-1", "/h", text)
     return text.replace("//", "/")
 
 

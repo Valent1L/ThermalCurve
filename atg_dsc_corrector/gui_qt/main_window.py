@@ -6,28 +6,24 @@ from atg_dsc_corrector import APP_NAME, CONTACT, COPYRIGHT, LICENSE, __version__
 from atg_dsc_corrector.i18n import language, tr as _t
 
 from copy import deepcopy
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Callable
 
 import numpy as np
-from matplotlib.backends.backend_qtagg import NavigationToolbar2QT
 from matplotlib.figure import Figure
 from matplotlib.widgets import SpanSelector
 from PySide6.QtCore import QEventLoop, QSettings, QSignalBlocker, Qt
 from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
-    QAbstractItemView,
     QButtonGroup,
     QCheckBox,
     QComboBox,
-    QDialog,
     QFileDialog,
     QFormLayout,
-    QFrame,
     QGroupBox,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
     QMainWindow,
     QMenu,
@@ -37,8 +33,6 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSplitter,
-    QTableWidget,
-    QTableWidgetItem,
     QTabWidget,
     QToolBar,
     QToolButton,
@@ -46,7 +40,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from atg_dsc_corrector.analysis_zones import AnalysisZoneManager, axis_values
+from atg_dsc_corrector.analysis_zones import AnalysisZoneManager, axis_values, axis_unit
 from atg_dsc_corrector.correction import CorrectionSettings
 from atg_dsc_corrector.models import CorrectionResult, ExperimentData, unit_key
 from atg_dsc_corrector.normalization import (
@@ -55,39 +49,38 @@ from atg_dsc_corrector.normalization import (
 )
 from atg_dsc_corrector.comparison_exports import (
     ComparisonExportError,
-    export_group_statistics,
     export_figure,
     export_visible_curves,
 )
 from atg_dsc_corrector.comparison import (
-    COMPARISON_COLORS,
     ComparisonOptions,
     ComparisonPlot,
 )
 from atg_dsc_corrector.comparison_statistics import quantify_group_zone
-from atg_dsc_corrector.plotting import CorrectionPlot, PlotOptions, x_values
+from atg_dsc_corrector.mean_zone_quantification import quantify_mean_zone_signal, mean_heat_flow_profile
+from atg_dsc_corrector.plotting import x_values, draw_graph_legend, draw_heat_flow_zone
+from atg_dsc_corrector.labels import plain_display_label
 from atg_dsc_corrector.projects import (
     ProjectError,
     ProjectOpenCancelled,
     ProjectValidationError,
     SourceFileRecord,
+    default_comparison_settings,
 )
 
 from .adapters import ProjectWorkflow
 from .comparison_panel import ComparisonPanel, STAT_DISPLAY_LABELS
 from .graph_settings_dialog import GraphSettingsDialog
+from .thermal_program_editor import ThermalProgramDialog
 from .normalization_panel import NormalizationPanel
 from .periodic_table_dialog import PeriodicTableDialog
 from .stoichiometry_dialog import StoichiometryDialog
-from .theme import ThemedFigureCanvas, appearance_palette, apply_application_theme, line_icon, style_plot_toolbar
-from .zones_panel import ZoneResultsDialog, ZonesPanel
-from .workspace_widgets import FoldPanel, scroll_panel
+from .theme import PlotToolbar, ThemedFigureCanvas, appearance_palette, apply_application_theme, line_icon, style_plot_toolbar
+from .zones_panel import ZoneAppearanceDialog, ZonesPanel
 from .settings import application_settings
 
 
-FILE_FILTER = (
-    _t('Données ATG / ATG-DSC (*.xls *.xlsx *.txt *.csv *.tsv);;Tous les fichiers (*)')
-)
+FILE_FILTER = _t('Données ATG / ATG-DSC (*.xls *.xlsx *.txt *.csv *.tsv);;Exports ATG texte avec ou sans extension (*);;Tous les fichiers (*)')
 
 SIGNAL_LABELS = {
     "tg": "TG",
@@ -98,6 +91,7 @@ SIGNAL_LABELS = {
 AXIS_LABELS = {
     "time_s": _t('Temps (s)'),
     "time_min": _t('Temps (min)'),
+    "time_h": _t('Temps (h)'),
     "furnace_temperature": _t('Température du four'),
     "sample_temperature": _t("Température de l'échantillon"),
 }
@@ -118,7 +112,7 @@ def _path_label() -> QLabel:
     label.setWordWrap(True)
     label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
     label.setSizePolicy(
-        QSizePolicy.Policy.Expanding,
+        QSizePolicy.Policy.Ignored,
         QSizePolicy.Policy.Preferred,
     )
     return label
@@ -135,18 +129,17 @@ class MainWindow(QMainWindow):
         settings: QSettings | None = None,
     ) -> None:
         super().__init__(parent)
+        from .number_format import number_locale
+        self.setLocale(number_locale())
         self._appearance_settings = (
             settings if settings is not None else application_settings()
         )
         self._appearance_settings.sync()
         self._last_messages = ""
-        self._comparison_message_text = ""
         self._panels = {}
-        self._panel_sizes = {"left": 260, "right": 300, "bottom": 150}
-        self.interface_style = str(self._appearance_settings.value("appearance/style", "atelier"))
+        self._panel_sizes = {"left": 350, "right": 300, "bottom": 230}
+        self.interface_style = "console"
         self.color_theme = str(self._appearance_settings.value("appearance/theme", "light"))
-        if self.interface_style not in {"atelier", "console"}:
-            self.interface_style = "atelier"
         if self.color_theme not in {"light", "dark"}:
             self.color_theme = "light"
         self.workflow = workflow or ProjectWorkflow()
@@ -168,32 +161,25 @@ class MainWindow(QMainWindow):
         self._zone_selection_panel: ZonesPanel | None = None
         self._comparison_curves = []
         self._comparison_statistics = []
-        self._zone_results_context: str | None = None
         self._mode_context_keys: dict[str, tuple[int, ...] | None] = {
             "main": None,
-            "comparison": None,
         }
-        self._atg_dsc_modes = {"main": False, "comparison": False}
+        self._atg_dsc_modes = {"main": False}
         self.setMinimumSize(900, 620)
         self.resize(1500, 900)
 
         self.figure = Figure(figsize=(9, 6), dpi=100, constrained_layout=True)
         self.canvas = ThemedFigureCanvas(self.figure)
         self.canvas.setObjectName("plotCanvas")
-        self.plot = CorrectionPlot(self.figure)
-        self.comparison_figure = Figure(figsize=(9, 6), dpi=100, constrained_layout=True)
-        self.comparison_canvas = ThemedFigureCanvas(self.comparison_figure)
-        self.comparison_canvas.setObjectName("comparisonPlotCanvas")
-        self.comparison_plot = ComparisonPlot(self.comparison_figure)
+        self.plot = ComparisonPlot(self.figure)
 
         self._build_actions()
         self._build_window()
-        self.set_appearance(self.interface_style, self.color_theme, persist=False)
+        self.set_appearance(self.color_theme, persist=False)
         self._connect_signals()
-        self._plot_key_connection = self.canvas.mpl_connect(
+        self.canvas.mpl_connect(
             "key_press_event", self._on_plot_key_press
         )
-        self.comparison_canvas.mpl_connect("key_press_event", self._on_plot_key_press)
         self._set_tab_order()
         self._update_source_views()
         self._update_action_state()
@@ -217,15 +203,14 @@ class MainWindow(QMainWindow):
         self.open_blank_action.setShortcut(QKeySequence("Ctrl+B"))
         self.export_action = QAction(_t('Exporter le résultat…'), self)
         self.export_action.setShortcut(QKeySequence("Ctrl+E"))
+        self.export_figure_action = QAction(_t("Exporter la figure"), self)
         self.quit_action = QAction(_t('Quitter'), self)
         self.quit_action.setShortcut(QKeySequence.StandardKey.Quit)
-        self.comparison_action = QAction(_t('Comparaison des expériences'), self)
         self.stoichiometry_action = QAction(_t('Calculs stœchiométriques…'), self)
         self.periodic_table_action = QAction(_t('Tableau périodique…'), self)
         self.graph_settings_action = QAction(_t('Paramètres du graphique…'), self)
-        self.comparison_graph_settings_action = QAction(
-            _t('Paramètres du graphique…'), self
-        )
+        self.graph_settings_action.setIcon(line_icon("settings"))
+        self.thermal_program_action = QAction(_t('Programme thermique'), self)
 
         menu = self.menuBar().addMenu(_t('&Fichier'))
         menu.addAction(self.new_project_action)
@@ -238,9 +223,10 @@ class MainWindow(QMainWindow):
         menu.addAction(self.open_blank_action)
         menu.addSeparator()
         menu.addAction(self.export_action)
+        menu.addAction(self.export_figure_action)
         menu.addSeparator()
         menu.addAction(self.quit_action)
-        self.menuBar().addAction(self.comparison_action)
+        self.menuBar().addAction(self.thermal_program_action)
         self.menuBar().addAction(self.stoichiometry_action)
         self.menuBar().addAction(self.periodic_table_action)
         self.options_menu = self.menuBar().addMenu(_t('&Options'))
@@ -265,7 +251,6 @@ class MainWindow(QMainWindow):
         appearance = self.appearance_menu = self.options_menu.addMenu(_t('Apparence'))
         self.appearance_actions: dict[str, dict[str, QAction]] = {}
         for key, title, choices in (
-            ("style", _t("Style d'interface"), (("atelier", _t('Atelier (A)')), ("console", _t('Console (C)')))),
             ("theme", _t('Thème'), (("light", _t('Clair')), ("dark", _t('Sombre')))),
         ):
             submenu = appearance.addMenu(title)
@@ -278,10 +263,7 @@ class MainWindow(QMainWindow):
                 group.addAction(action)
                 self.appearance_actions[key][value] = action
                 action.triggered.connect(
-                    lambda checked, k=key, v=value: self.set_appearance(
-                        v if k == "style" else self.interface_style,
-                        v if k == "theme" else self.color_theme,
-                    ) if checked else None
+                    lambda checked, v=value: self.set_appearance(v) if checked else None
                 )
 
         self.about_action = self.menuBar().addAction(_t('À &propos'))
@@ -316,7 +298,12 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(_t('Langue enregistrée. Fermez puis relancez l’application pour l’appliquer.'), 15000)
 
     def _build_window(self) -> None:
-        self._build_comparison_window()
+        self.comparison_panel = ComparisonPanel(self.workflow)
+        visible = self.workflow.project_document.display["visible_signals"]
+        for signal, check in self.comparison_panel.signal_checks.items():
+            with QSignalBlocker(check):
+                check.setChecked(signal in visible)
+        self.workflow.project_document.comparison["signals"] = list(visible)
         self.stoichiometry_dialog = StoichiometryDialog(self.workflow, self)
         self.stoichiometry_dialog.project_changed.connect(self._stoichiometry_changed)
         self.periodic_table_dialog = PeriodicTableDialog(self)
@@ -326,18 +313,19 @@ class MainWindow(QMainWindow):
         toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.interface_title = QLabel()
         self.interface_title.setObjectName("workspaceTitle")
-        toolbar.addWidget(self.interface_title)
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        toolbar.addWidget(spacer)
         for action, label, icon in (
             (self.open_experiment_action, _t('Importer'), "import"),
             (self.save_project_action, _t('Enregistrer'), "save"),
             (self.export_action, _t('Exporter'), "export"),
+            (self.export_figure_action, _t("Exporter la figure"), "export"),
         ):
             action.setIconText(label)
             action.setIcon(line_icon(icon))
             toolbar.addAction(action)
+        toolbar.addWidget(spacer)
+        toolbar.addWidget(self.interface_title)
         self.addToolBar(toolbar)
         self.appearance_label = QLabel()
         self.appearance_label.setProperty("secondary", True)
@@ -359,9 +347,13 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
         splitter.setStretchFactor(2, 0)
-        splitter.setSizes([250, 680, 350])
+        splitter.setSizes([350, 780, 300])
         self.setCentralWidget(splitter)
-        self.zone_results_dialog = ZoneResultsDialog(self)
+        self.main_splitter.setSizes([350, max(700, self.width() - 560), 300])
+        self.plot_splitter.setSizes([max(400, self.height() - 300), 230])
+        for layout in (self.files_layout, self.preparation_layout, self.plot_layout):
+            layout.setSpacing(4)
+            layout.setContentsMargins(4, 4, 4, 4)
 
     def _collapsible_panel(self, key: str, title: str, content: QWidget) -> QWidget:
         frame = QWidget()
@@ -408,65 +400,22 @@ class MainWindow(QMainWindow):
         sizes[center] = max(1, total - sum(value for i, value in enumerate(sizes) if i != center))
         splitter.setSizes(sizes)
 
-    def set_appearance(self, style: str, theme: str, *, persist: bool = True) -> None:
-        tokens = appearance_palette(theme, style)
-        style_changed = style != getattr(self, "_applied_style", None)
-        self.interface_style, self.color_theme = style, theme
-        apply_application_theme(QApplication.instance(), theme, style, set_font=False)
-        for canvas in (self.canvas, self.comparison_canvas):
+    def set_appearance(self, theme: str, *, persist: bool = True) -> None:
+        tokens = appearance_palette(theme)
+        self.color_theme = theme
+        apply_application_theme(QApplication.instance(), theme, set_font=False)
+        for canvas in (self.canvas,):
             canvas.screen_theme = tokens if theme == "dark" else None
             canvas.draw_idle()
-        if style_changed:
-            console = style == "console"
-            table = self.zones_panel.zone_table
-            if console:
-                self.console_zone_layout.addWidget(table)
-                for _, widget in self._zone_report_positions:
-                    self.console_report_layout.addWidget(widget)
-            else:
-                self.zones_panel.layout().insertWidget(0, table)
-                for position, widget in self._zone_report_positions:
-                    self.zones_panel.layout().insertWidget(position, widget)
-            table.show()
-            for _, widget in self._zone_report_positions:
-                widget.show()
-            self.console_zone_group.setVisible(self._panels["bottom"][3].isChecked())
-            self.zone_summary.setVisible(not console)
-            self.zone_summary_layout.setStretch(0, 0 if console else 1)
-            self.zone_summary_layout.setStretch(1, 1 if console else 0)
-            self.zone_summary_layout.setStretch(2, 1 if console else 0)
-            # Le graphique reçoit tout l'espace restant ; ne pas rouvrir un volet masqué.
-            self.main_splitter.setSizes([
-                self._panel_sizes["left"] if self._panels["left"][3].isChecked() else 32,
-                max(700, self.width() - 560),
-                self._panel_sizes["right"] if self._panels["right"][3].isChecked() else 32,
-            ])
-            self.plot_splitter.setSizes([max(500, self.height() - 220),
-                                        150 if self._panels["bottom"][3].isChecked() else 32])
-            for layout in (self.files_layout, self.preparation_layout, self.plot_layout):
-                gap = 4 if console else 8
-                layout.setSpacing(gap)
-                layout.setContentsMargins(gap, gap, gap, gap)
-            self.experiments_table.verticalHeader().setDefaultSectionSize(
-                self.fontMetrics().height() * 2 + (8 if console else 24)
-            )
-            self._applied_style = style
-            self._set_tab_order()
-        for key, value in (("style", style), ("theme", theme)):
-            self.appearance_actions[key][value].setChecked(True)
+        self.appearance_actions["theme"][theme].setChecked(True)
         self.appearance_label.setText(
-            f"{_t('Atelier') if style == 'atelier' else _t('Console')} · "
+            f"{_t('Console')} · "
             f"{_t('Clair') if theme == 'light' else _t('Sombre')}"
         )
-        self.interface_title.setText(_t('Atelier scientifique') if style == "atelier" else _t("Console d'analyse"))
-        self.comparison_style_title.setText(self.interface_title.text())
-        self.comparison_panel.set_appearance(style)
-        self.stoichiometry_dialog.set_appearance(style)
-        self.experiments_table.setProperty("interfaceStyle", style)
-        self.experiments_table.style().unpolish(self.experiments_table)
-        self.experiments_table.style().polish(self.experiments_table)
+        self.interface_title.setText(_t("Console d'analyse"))
+        self.comparison_panel.set_appearance()
+        self.stoichiometry_dialog.set_appearance()
         if persist:
-            self._appearance_settings.setValue("appearance/style", style)
             self._appearance_settings.setValue("appearance/theme", theme)
             self._appearance_settings.sync()
             if self._appearance_settings.status() != QSettings.Status.NoError:
@@ -474,124 +423,7 @@ class MainWindow(QMainWindow):
                                     _t("Impossible d'enregistrer l'apparence dans :\n")
                                     + self._appearance_settings.fileName())
 
-    def _build_comparison_window(self) -> None:
-        self.comparison_dialog = QDialog(self)
-        self.comparison_dialog.setWindowTitle(_t('Comparaison des résultats'))
-        self.comparison_dialog.setModal(False)
-        self.comparison_dialog.setWindowFlags(
-            self.comparison_dialog.windowFlags()
-            | Qt.WindowType.WindowMinimizeButtonHint
-            | Qt.WindowType.WindowMaximizeButtonHint
-            | Qt.WindowType.WindowCloseButtonHint
-        )
-        self.comparison_dialog.setSizeGripEnabled(True)
-        self.comparison_dialog.setMinimumSize(1000, 680)
-        self.comparison_dialog.resize(1600, 1000)
-        layout = QVBoxLayout(self.comparison_dialog)
-        layout.setContentsMargins(8, 8, 8, 8)
-        top = QHBoxLayout()
-        self.comparison_style_title = QLabel()
-        self.comparison_style_title.setObjectName("workspaceTitle")
-        top.addWidget(self.comparison_style_title)
-        top.addStretch(1)
-        self.comparison_panel = ComparisonPanel(self.workflow)
-        add = QPushButton(_t('Ajouter des essais'))
-        add.setIcon(line_icon("add"))
-        add.clicked.connect(self.comparison_panel.add_button.click)
-        top.addWidget(add)
-        top.addWidget(self.comparison_panel.export_bar)
-        options = QToolButton()
-        options.setText(_t('Options'))
-        options.setIcon(line_icon("settings"))
-        options.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        options.setMenu(self.options_menu)
-        options.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        top.addWidget(options)
-        layout.addLayout(top)
-        splitter = self.comparison_splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setChildrenCollapsible(False)
-        content = QWidget()
-        controls_layout = QVBoxLayout(content)
-        controls_layout.setContentsMargins(0, 0, 0, 0)
-        controls_layout.addWidget(self._build_mode_selector("comparison"))
-        controls_layout.addWidget(self.comparison_panel, 1)
-        scroll = scroll_panel(content, "comparisonScrollArea")
-        scroll.setMinimumWidth(330)
-        left = FoldPanel(_t('Essais comparés'), scroll)
-        splitter.addWidget(left)
-        self.comparison_zones_panel = ZonesPanel(AXIS_LABELS)
-        graph = QWidget()
-        graph_layout = QVBoxLayout(graph)
-        graph_layout.setContentsMargins(8, 4, 8, 4)
-        self.comparison_axis_combo = QComboBox()
-        for key, label in AXIS_LABELS.items():
-            self.comparison_axis_combo.addItem(label, key)
-        self.comparison_axis_combo.setAccessibleName(_t('Abscisse de comparaison'))
-        graph_header = QHBoxLayout()
-        graph_header.addStretch(1)
-        graph_header.addWidget(self.comparison_axis_combo)
-        graph_header.addWidget(self.comparison_panel.signal_bar)
-        graph_layout.addLayout(graph_header)
-        self.comparison_toolbar = NavigationToolbar2QT(self.comparison_canvas, graph)
-        style_plot_toolbar(self.comparison_toolbar)
-        self.comparison_toolbar.addSeparator()
-        self.comparison_toolbar.addAction(self.comparison_graph_settings_action)
-        graph_layout.addWidget(self.comparison_toolbar)
-        graph_layout.addWidget(self.comparison_canvas, 1)
-        self.comparison_messages_button = QToolButton()
-        self.comparison_messages_button.setText(_t('Informations'))
-        self.comparison_messages_button.clicked.connect(
-            lambda: QMessageBox.information(self, _t('Comparaison : informations'),
-                                           self._comparison_message_text or _t('Aucun message.'))
-        )
-        center = self.comparison_plot_splitter = QSplitter(Qt.Orientation.Vertical)
-        center.setChildrenCollapsible(False)
-        center.addWidget(graph)
-        results = QWidget()
-        results_layout = QVBoxLayout(results)
-        results_layout.setContentsMargins(8, 4, 8, 4)
-        self.comparison_results_table = QTableWidget(0, 6)
-        self.comparison_results_table.setHorizontalHeaderLabels(
-            (_t('Série'), _t('Zone'), _t('Début'), _t('Fin'), _t('Variation'), _t('Complément'))
-        )
-        self.comparison_results_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.comparison_results_table.verticalHeader().hide()
-        self.comparison_results_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        results_layout.addWidget(self.comparison_results_table)
-        results_layout.addWidget(self.comparison_zones_panel.all_results_button)
-        bottom = FoldPanel(_t('Résultats des zones'), results, vertical=True, expanded_size=180)
-        center.addWidget(bottom)
-        center.setStretchFactor(0, 1)
-        center.setSizes([760, 160])
-        bottom.button.setChecked(False)
-        splitter.addWidget(center)
-        self.comparison_inspector = QTabWidget()
-        self.comparison_inspector.addTab(scroll_panel(self.comparison_panel.display_group), _t('Affichage'))
-        self.comparison_inspector.addTab(scroll_panel(self.comparison_zones_panel), _t('Zones'))
-        self.comparison_inspector.addTab(scroll_panel(self.comparison_panel.statistics_group), _t('Statistiques'))
-        right = FoldPanel(_t('Inspecteur'), self.comparison_inspector, expanded_size=320)
-        splitter.addWidget(right)
-        self.comparison_panels = {"left": left, "right": right, "bottom": bottom}
-        splitter.setStretchFactor(1, 1)
-        splitter.setSizes([280, 1050, 250])
-        right.button.setChecked(False)
-        layout.addWidget(splitter, 1)
-        footer = QHBoxLayout()
-        self.comparison_count_label = QLabel(_t('0 courbe visible'))
-        footer.addWidget(self.comparison_count_label)
-        footer.addStretch(1)
-        footer.addWidget(self.comparison_messages_button)
-        layout.addLayout(footer)
-        self.comparison_dialog.finished.connect(self._cancel_graphical_zone_selection)
-        controls = [
-            self.comparison_atg_button,
-            self.comparison_atg_dsc_button,
-            *self.comparison_panel.tab_controls(),
-            *self.comparison_zones_panel.tab_controls(),
-            self.comparison_axis_combo,
-        ]
-        for first, second in zip(controls, controls[1:]):
-            QWidget.setTabOrder(first, second)
+
 
     def _build_left_panel(self) -> QScrollArea:
         scroll = QScrollArea()
@@ -613,6 +445,8 @@ class MainWindow(QMainWindow):
         provenance.setWordWrap(True)
         layout.addWidget(provenance)
         scroll.setWidget(content)
+        # Keep the minimum usable control width, including the vertical scrollbar.
+        scroll.setMinimumWidth(content.minimumSizeHint().width() + scroll.verticalScrollBar().sizeHint().width())
         return scroll
 
     def _build_inspector(self) -> QTabWidget:
@@ -645,17 +479,10 @@ class MainWindow(QMainWindow):
         self.align_zeros_check.toggled.connect(self._set_main_zero_alignment)
         layout.addStretch(1)
         self.zones_panel = ZonesPanel(AXIS_LABELS)
-        self._zone_report_positions = [
-            (self.zones_panel.layout().indexOf(widget), widget)
-            for widget in (
-                self.zones_panel.findChild(QLabel, "zoneResultsLabel"),
-                self.zones_panel.results,
-                self.zones_panel.all_results_button,
-            )
-        ]
         for widget, title, name in (
             (content, _t('Préparation'), "controlsScrollArea"),
-            (self.zones_panel, _t('Zones'), "zonesScrollArea"),
+            (self.comparison_panel.statistics_group, _t('Statistiques'), "statisticsScrollArea"),
+            (self.comparison_panel.display_group, _t('Courbes'), "displayScrollArea"),
         ):
             scroll = QScrollArea()
             scroll.setObjectName(name)
@@ -663,6 +490,9 @@ class MainWindow(QMainWindow):
             scroll.setWidget(widget)
             # Les longues options défilent dans le volet au lieu d'agrandir la fenêtre.
             scroll.setMinimumWidth(240)
+            for label in widget.findChildren(QLabel):
+                label.setWordWrap(True)
+            scroll.setMinimumWidth(max(240, widget.minimumSizeHint().width() + scroll.verticalScrollBar().sizeHint().width()))
             self.inspector_tabs.addTab(scroll, title)
         return self.inspector_tabs
 
@@ -696,33 +526,15 @@ class MainWindow(QMainWindow):
         return group
 
     def _build_files_group(self) -> QGroupBox:
-        group = QGroupBox()
-        group.setObjectName("filesGroup")
-        layout = QVBoxLayout(group)
-        layout.setSpacing(8)
-
-        self.experiments_table = QTableWidget(0, 2)
+        group = self.comparison_panel
+        self.experiments_table = group.table
         self.experiments_table.setObjectName("mainExperimentsTable")
         self.experiments_table.setAccessibleName(_t('Expériences et blancs associés'))
-        self.experiments_table.setHorizontalHeaderLabels([_t('Expérience'), _t('Blanc')])
-        self.experiments_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.experiments_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
-        self.experiments_table.setColumnWidth(1, 65)
-        self.experiments_table.verticalHeader().hide()
-        self.experiments_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.experiments_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.experiments_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.experiments_table.setAlternatingRowColors(True)
-        self.experiments_table.setMinimumHeight(130)
-        self.experiments_table.setToolTip(_t("Cocher l'expérience active ; choisir son blanc dans la colonne associée."))
+        self.experiments_table.setToolTip(_t("Cocher les expériences à afficher ; sélectionner une ligne pour modifier ses réglages."))
         self.experiment_path_label = _path_label()
         self.experiment_path_label.setObjectName("experimentPath")
-        self.open_experiment_button = QPushButton(_t('+ Ajouter'))
-        self.open_experiment_button.setAccessibleName(_t('Ajouter des expériences'))
-
-        layout.addWidget(self.experiments_table, 1)
-        layout.addWidget(self.open_experiment_button)
-        layout.addWidget(self.experiment_path_label)
+        self.open_experiment_button = group.add_button
+        group.layout().addWidget(self.experiment_path_label)
         return group
 
     def _build_processing_group(self) -> QGroupBox:
@@ -746,12 +558,16 @@ class MainWindow(QMainWindow):
 
     def _build_display_controls(self) -> QWidget:
         group = QWidget()
-        layout = QHBoxLayout(group)
+        layout = QFormLayout(group)
+        layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         layout.setContentsMargins(0, 0, 0, 0)
         self.display_stage_label = QLabel(_t('Aucune expérience'))
         self.display_stage_label.setObjectName("displayStage")
-        layout.addWidget(self.display_stage_label)
-        layout.addStretch(1)
+        from .flow_layout import FlowLayout
+        options = QWidget()
+        option_row = FlowLayout(options)
+        layout.addRow(self.display_stage_label, options)
 
         self.display_axis_combo = QComboBox()
         self.display_axis_combo.setObjectName("displayAxisCombo")
@@ -765,19 +581,10 @@ class MainWindow(QMainWindow):
         self.display_axis_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.display_axis_combo.setMinimumContentsLength(10)
         self.display_axis_combo.setToolTip(_t("Axe d'affichage"))
-        layout.addWidget(self.display_axis_combo)
+        option_row.addWidget(self.display_axis_combo)
 
-        signal_frame = QFrame()
-        signal_layout = QHBoxLayout(signal_frame)
-        signal_layout.setContentsMargins(0, 0, 0, 0)
-        signal_layout.setSpacing(4)
-        self.signal_checks: dict[str, QCheckBox] = {}
-        for role, text in SIGNAL_LABELS.items():
-            checkbox = QCheckBox(text)
-            checkbox.setChecked(role in {"tg", "heat_flow"})
-            self.signal_checks[role] = checkbox
-            signal_layout.addWidget(checkbox)
-        layout.addWidget(signal_frame)
+        self.signal_checks = self.comparison_panel.signal_checks
+        option_row.addWidget(self.comparison_panel.signal_bar)
 
         return group
 
@@ -790,8 +597,10 @@ class MainWindow(QMainWindow):
         layout.setSpacing(8)
         layout.addWidget(self._build_display_controls())
 
-        self.toolbar = NavigationToolbar2QT(self.canvas, panel)
+        self.toolbar = PlotToolbar(self.canvas, panel)
         style_plot_toolbar(self.toolbar)
+        self.legend_action = self.toolbar.addAction(line_icon("legend"), _t("Modifier la légende"))
+        self.legend_action.triggered.connect(self._open_legend_settings)
         self.toolbar.setObjectName("matplotlibToolbar")
         self.toolbar.addSeparator()
         self.toolbar.addAction(self.graph_settings_action)
@@ -799,33 +608,20 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.canvas, 1)
 
         self.plot_splitter.addWidget(panel)
-        self.console_zone_group = QGroupBox()
-        self.console_zone_group.setObjectName("zoneSummaryGroup")
-        dock_layout = self.zone_summary_layout = QHBoxLayout(self.console_zone_group)
-        dock_layout.setContentsMargins(8, 2, 8, 2)
-        self.zone_summary = QLabel(_t('Sélectionnez une zone pour afficher ses résultats.'))
-        self.zone_summary.setWordWrap(True)
-        self.zone_summary.setTextFormat(Qt.TextFormat.PlainText)
-        self.zone_summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        dock_layout.addWidget(self.zone_summary, 1)
-        self.console_zone_layout = QVBoxLayout()
-        self.console_report_layout = QVBoxLayout()
-        dock_layout.addLayout(self.console_zone_layout, 1)
-        dock_layout.addLayout(self.console_report_layout, 1)
-        self.zones_panel.results.setMinimumHeight(70)
-        self.zones_panel.zone_table.setMinimumHeight(70)
-        self.zones_panel.results.textChanged.connect(self._refresh_zone_summary)
-        self.plot_splitter.addWidget(self._collapsible_panel("bottom", _t('Résultats des zones'), self.console_zone_group))
+        self.console_zone_group = self.zones_panel
+        zone_frame = self._collapsible_panel("bottom", _t("Zones"), self.zones_panel)
+        header = zone_frame.layout().itemAt(0).layout()
+        from .flow_layout import FlowLayout
+        zone_actions = FlowLayout()
+        zone_actions.addWidget(header.takeAt(0).widget())
+        header.insertLayout(0, zone_actions, 1)
+        for button in (self.zones_panel.all_results_button, self.zones_panel.add_button, self.zones_panel.update_button,
+                       self.zones_panel.delete_button, self.zones_panel.copy_button, self.zones_panel.information_button):
+            zone_actions.addWidget(button)
+        self.plot_splitter.addWidget(zone_frame)
         self.plot_splitter.setStretchFactor(0, 1)
         self.plot_splitter.setStretchFactor(1, 0)
         return self.plot_splitter
-
-    def _refresh_zone_summary(self) -> None:
-        lines = self.zones_panel.results.toPlainText().splitlines()
-        summary = [line.strip() for line in lines if line.startswith(_t('Axe :'))
-                   or line.strip().startswith((_t('Variation dans la zone'), _t('Variation / m0')))]
-        self.zone_summary.setText("\n".join([*lines[:1], *summary])
-                                 or _t('Sélectionnez une zone pour afficher ses résultats.'))
 
     def _connect_signals(self) -> None:
         self.new_project_action.triggered.connect(self.new_project)
@@ -835,26 +631,16 @@ class MainWindow(QMainWindow):
         self.open_experiment_action.triggered.connect(self.choose_experiment)
         self.open_blank_action.triggered.connect(self.choose_blank)
         self.export_action.triggered.connect(self.choose_export)
+        self.export_figure_action.triggered.connect(self._export_comparison_figure)
         self.quit_action.triggered.connect(self.close)
-        self.comparison_action.triggered.connect(self.show_comparison_window)
         self.stoichiometry_action.triggered.connect(self.show_stoichiometry_window)
         self.periodic_table_action.triggered.connect(self.show_periodic_table_window)
+        self.thermal_program_action.triggered.connect(self._open_thermal_program)
         self.graph_settings_action.triggered.connect(
-            lambda _checked=False: self._open_graph_settings(False)
-        )
-        self.comparison_graph_settings_action.triggered.connect(
             lambda _checked=False: self._open_graph_settings(True)
         )
         self.open_experiment_button.clicked.connect(self.choose_experiment)
-        self.experiments_table.currentCellChanged.connect(
-            lambda row, column, *_: column == 0
-            and self._select_main_experiment(row)
-        )
-        self.experiments_table.itemChanged.connect(self._main_experiment_checked)
         self.comparison_panel.blank_button.clicked.connect(self.choose_comparison_blank)
-        self.comparison_panel.add_button.clicked.connect(
-            self.choose_comparison_experiments
-        )
         self.comparison_panel.remove_button.clicked.connect(
             self._remove_comparison_experiments
         )
@@ -865,6 +651,8 @@ class MainWindow(QMainWindow):
             lambda: self._move_comparison_experiment(1)
         )
         self.comparison_panel.changed.connect(self._comparison_changed)
+        self.comparison_panel.stack_signal_combo.currentIndexChanged.connect(self._update_stack_unit)
+        self.comparison_panel.model.modelReset.connect(self._refresh_blank_buttons)
         self.comparison_panel.auto_stack_requested.connect(
             self._auto_stack_comparison
         )
@@ -872,56 +660,32 @@ class MainWindow(QMainWindow):
             self._zero_comparison_offsets
         )
         self.comparison_panel.active_row_changed.connect(
-            self._activate_comparison_experiment
-        )
-        self.comparison_panel.export_data_requested.connect(
-            self._export_comparison_data
-        )
-        self.comparison_panel.export_figure_requested.connect(
-            self._export_comparison_figure
-        )
-        self.comparison_panel.export_statistics_requested.connect(
-            self._export_comparison_statistics
+            self._select_main_experiment
         )
         self.display_axis_combo.currentIndexChanged.connect(self._sync_display_axis)
-        self.comparison_axis_combo.currentIndexChanged.connect(
-            lambda: self.display_axis_combo.setCurrentIndex(
-                self.display_axis_combo.findData(self.comparison_axis_combo.currentData())
-            )
-        )
-        for checkbox in self.signal_checks.values():
-            checkbox.toggled.connect(self._sync_visible_signals)
         self.show_subtraction_check.toggled.connect(self._show_subtraction_changed)
         self.normalization_panel.changed.connect(self._normalization_changed)
         self.normalization_panel.pending_changed.connect(
             self._normalization_pending
         )
-        for panel in (self.zones_panel, self.comparison_zones_panel):
-            panel.add_button.clicked.connect(lambda checked=False, p=panel: self._add_analysis_zone(checked, panel=p))
-            panel.update_button.clicked.connect(lambda checked=False, p=panel: self._update_analysis_zone(checked, panel=p))
-            panel.delete_button.clicked.connect(lambda checked=False, p=panel: self._delete_analysis_zone(checked, panel=p))
-            panel.graph_button.clicked.connect(lambda checked, p=panel: self._toggle_graphical_zone_selection(checked, panel=p))
-            panel.active_zone_changed.connect(self._on_active_analysis_zone_changed)
-        self.zones_panel.show_all_results_requested.connect(
-            lambda: self._show_all_zone_results("main")
-        )
-        self.comparison_zones_panel.show_all_results_requested.connect(
-            lambda: self._show_all_zone_results("comparison")
-        )
+        self.zones_panel.add_button.clicked.connect(self._add_analysis_zone)
+        self.zones_panel.delete_button.clicked.connect(self._delete_analysis_zone)
+        self.zones_panel.zone_edit_requested.connect(self._edit_analysis_zone)
+        self.zones_panel.appearance_requested.connect(self._edit_zone_appearance)
+        self.zones_panel.active_zone_changed.connect(self._on_active_analysis_zone_changed)
         self.process_button.clicked.connect(self.process_current)
 
     def _set_tab_order(self) -> None:
-        zone_controls = self.zones_panel.tab_controls()
-        dock_controls = []
-        if self.interface_style == "console":
-            dock_controls = [self.zones_panel.zone_table, self.zones_panel.results,
-                             self.zones_panel.all_results_button]
-            zone_controls = [widget for widget in zone_controls if widget not in dock_controls]
+        dock_controls = self.zones_panel.tab_controls()
         controls = [
             self.main_atg_button,
             self.main_atg_dsc_button,
             self.experiments_table,
             self.open_experiment_button,
+            self.comparison_panel.remove_button,
+            self.comparison_panel.up_button,
+            self.comparison_panel.down_button,
+            self.comparison_panel.blank_button,
             self.display_axis_combo,
             *self.signal_checks.values(),
             *dock_controls,
@@ -929,8 +693,8 @@ class MainWindow(QMainWindow):
             self.show_subtraction_check,
             self.process_button,
             *self.normalization_panel.tab_controls(),
-            *zone_controls,
         ]
+        controls.extend(widget for widget in self.comparison_panel.tab_controls() if widget not in controls)
         for first, second in zip(controls, controls[1:]):
             QWidget.setTabOrder(first, second)
 
@@ -1064,10 +828,22 @@ class MainWindow(QMainWindow):
         return answer == QMessageBox.StandardButton.Discard
 
     def _restore_project_state(self) -> None:
+        # Les anciens projets conservent leurs réglages du graphique principal
+        # lorsque le graphique de comparaison n'avait pas été personnalisé.
+        display = self.workflow.project_document.display
+        comparison = self.workflow.project_document.comparison
+        defaults = default_comparison_settings()
+        if comparison["graph"] == defaults["graph"]:
+            comparison["graph"] = deepcopy(display["graph"])
+        if comparison["limits"] == defaults["limits"]:
+            comparison["limits"] = deepcopy(display["limits"])
+        if display["alignment_mode"] != "none" and not comparison["align_zeros"]:
+            comparison["align_zeros"] = display["alignment_mode"] == "zeros"
+        comparison["signals"] = list(display["visible_signals"])
         self._comparison_curves = []
         self._comparison_statistics = []
-        self.comparison_plot.draw([], ComparisonOptions())
-        self.comparison_canvas.draw_idle()
+        self.plot.draw([], ComparisonOptions())
+        self.canvas.draw_idle()
         self._restoring_project = True
         try:
             display_axis = self.workflow.project_document.display["x_axis"]
@@ -1077,7 +853,8 @@ class MainWindow(QMainWindow):
                 self.workflow.project_document.display["visible_signals"]
             )
             for role, checkbox in self.signal_checks.items():
-                checkbox.setChecked(role in visible)
+                with QSignalBlocker(checkbox):
+                    checkbox.setChecked(role in visible)
             self.show_subtraction_check.setChecked(
                 bool(self.workflow.project_document.display["show_subtraction"])
             )
@@ -1118,22 +895,13 @@ class MainWindow(QMainWindow):
         self.comparison_panel.model.refresh()
         self.comparison_panel.restore(self.workflow.project_document.comparison)
         self.stoichiometry_dialog.restore_project_state()
-        self.comparison_axis_combo.blockSignals(True)
-        self.comparison_axis_combo.setCurrentIndex(self.comparison_axis_combo.findData(self.workflow.display_axis))
-        self.comparison_axis_combo.blockSignals(False)
         self._update_source_views()
         self._refresh_zones_panel()
 
     def _mode_context_experiments(self, context: str) -> tuple[ExperimentData, ...]:
-        if context == "main":
-            return (() if self.workflow.experiment is None else (self.workflow.experiment,))
         return tuple(
-            experiment
-            for row, experiment in enumerate(self.workflow.experiments)
-            if (
-                self.workflow.comparison_record(row)["selected"]
-                and self.workflow.comparison_record(row)["visible"]
-            )
+            experiment for row, experiment in enumerate(self.workflow.experiments)
+            if self.workflow.comparison_record(row)["visible"] and self.workflow.comparison_record(row)["selected"]
         )
 
     def _sync_interface_mode(self, context: str) -> None:
@@ -1154,14 +922,12 @@ class MainWindow(QMainWindow):
         self._apply_interface_mode(context)
 
     def _apply_interface_mode(self, context: str) -> None:
-        heat_flow_visible = self._atg_dsc_modes[context]
-        if context == "main":
-            self.signal_checks["heat_flow"].setVisible(heat_flow_visible)
-            self.normalization_panel.set_heat_flow_visible(heat_flow_visible)
-            self.zones_panel.set_heat_flow_visible(heat_flow_visible)
-        else:
-            self.comparison_panel.set_heat_flow_visible(heat_flow_visible)
-            self.comparison_zones_panel.set_heat_flow_visible(heat_flow_visible)
+        heat_flow_visible = self._atg_dsc_modes["main"]
+        self.comparison_panel.set_heat_flow_visible(heat_flow_visible)
+        self.normalization_panel.set_heat_flow_visible(
+            self.workflow.experiment is not None and _has_source_heat_flow(self.workflow.experiment)
+        )
+        self.zones_panel.set_heat_flow_visible(heat_flow_visible)
 
     def _mode_selected(self, context: str, atg_dsc: bool, checked: bool) -> None:
         if not checked:
@@ -1172,13 +938,7 @@ class MainWindow(QMainWindow):
         self._atg_dsc_modes[context] = atg_dsc
         self._mode_context_keys[context] = tuple(id(item) for item in experiments)
         self._apply_interface_mode(context)
-        if context == "main":
-            if self.workflow.result is not None and self._visible_signals():
-                self._draw_result(self.workflow.result)
-            else:
-                self._draw_placeholder(main_only=True)
-        else:
-            self._draw_comparison()
+        self._draw_comparison()
         self._update_action_state()
 
     def _checked_signals(self) -> tuple[str, ...]:
@@ -1195,28 +955,32 @@ class MainWindow(QMainWindow):
             if role != "heat_flow" or self._atg_dsc_modes["main"]
         )
 
+    def _open_thermal_program(self) -> None:
+        if self.workflow.experiment is None:
+            return
+        display = self.workflow.project_document.display
+        dialog = ThermalProgramDialog(
+            program=self.workflow.active_thermal_program(),
+            time_axis=self.workflow.display_axis,
+            apply_callback=lambda program: self._apply_graph_settings(False, [], {
+                "graph": display["graph"], "limits": display["limits"],
+                "alignment_mode": display["alignment_mode"], "thermal_program": program,
+            }),
+            parent=self,
+        )
+        dialog.exec()
+
     def _open_graph_settings(self, comparison: bool) -> None:
         if comparison:
             settings = self.workflow.project_document.comparison
             signals = self.comparison_panel.selected_signals()
             rows = self.comparison_panel.selected_rows()
-            selected_curves = []
-            for row in rows:
-                experiment = self.workflow.experiments[row]
-                identifier = self.workflow.comparison_key(experiment)
-                record = deepcopy(self.workflow.comparison_record(row))
-                record["color"] = settings["colors"].get(
-                    identifier,
-                    COMPARISON_COLORS[row % len(COMPARISON_COLORS)],
-                )
-                selected_curves.append(record)
-            alignment_mode = "zeros" if settings["align_zeros"] else "none"
+            alignment_mode = "zeros" if settings["align_zeros"] else self.workflow.project_document.display["alignment_mode"]
             show_offsets = bool(settings["show_offsets_in_legend"])
         else:
             settings = self.workflow.project_document.display
             signals = self._visible_signals()
             rows = []
-            selected_curves = []
             alignment_mode = str(settings["alignment_mode"])
             show_offsets = False
         dialog = GraphSettingsDialog(
@@ -1226,17 +990,12 @@ class MainWindow(QMainWindow):
             alignment_mode=alignment_mode,
             comparison=comparison,
             show_offsets_in_legend=show_offsets,
-            selected_curves=selected_curves,
             apply_callback=lambda values: self._apply_graph_settings(
                 comparison, rows, values
             ),
-            parent=self.comparison_dialog if comparison else self,
+            parent=self,
         )
-        self._graph_settings_dialog = dialog
-        try:
-            dialog.exec()
-        finally:
-            self._graph_settings_dialog = None
+        dialog.exec()
 
     def _apply_graph_settings(
         self,
@@ -1247,6 +1006,7 @@ class MainWindow(QMainWindow):
         previous_dirty = self.workflow.project_dirty
         if comparison:
             previous = deepcopy(self.workflow.project_document.comparison)
+            previous_display = deepcopy(self.workflow.project_document.display)
             try:
                 self.workflow.set_comparison_graph_settings(
                     graph=values["graph"],
@@ -1256,26 +1016,41 @@ class MainWindow(QMainWindow):
                     rows=rows,
                     curve_changes=values["curve_changes"],
                 )
+                self.workflow.set_main_graph_settings(
+                    graph=values["graph"], limits=values["limits"],
+                    alignment_mode=str(values["alignment_mode"]),
+                )
                 self.comparison_panel.model.refresh()
                 self._draw_comparison(propagate_errors=True)
             except (OSError, ValueError) as exc:
                 self.workflow.project_document.comparison = previous
+                self.workflow.project_document.display = previous_display
                 self.workflow.project_dirty = previous_dirty
                 self.comparison_panel.model.refresh()
                 self._draw_comparison()
                 raise ValueError(_t(str(exc))) from exc
         else:
             previous = deepcopy(self.workflow.project_document.display)
+            previous_comparison = deepcopy(self.workflow.project_document.comparison)
             try:
                 self.workflow.set_main_graph_settings(
                     graph=values["graph"],
                     limits=values["limits"],
                     alignment_mode=str(values["alignment_mode"]),
+                    thermal_program=values.get("thermal_program"),
+                )
+                settings = self.workflow.project_document.comparison
+                self.workflow.set_comparison_graph_settings(
+                    graph=values["graph"], limits=values["limits"],
+                    align_zeros=values["alignment_mode"] == "zeros",
+                    show_offsets_in_legend=settings["show_offsets_in_legend"],
+                    rows=[], curve_changes={},
                 )
                 if self.workflow.result is not None:
                     self._draw_result(self.workflow.result)
             except ValueError as exc:
                 self.workflow.project_document.display = previous
+                self.workflow.project_document.comparison = previous_comparison
                 self.workflow.project_dirty = previous_dirty
                 if self.workflow.result is not None:
                     self._draw_result(self.workflow.result)
@@ -1287,6 +1062,7 @@ class MainWindow(QMainWindow):
         if self._restoring_project:
             return
         self.workflow.set_align_zeros(enabled)
+        self.workflow.project_document.comparison["align_zeros"] = enabled
         if self.workflow.result is not None:
             self._draw_result(self.workflow.result)
         self._update_action_state()
@@ -1295,7 +1071,7 @@ class MainWindow(QMainWindow):
     def _update_title(self) -> None:
         marker = "*" if self.workflow.project_dirty else ""
         self.setWindowTitle(
-            f"{self.workflow.project_document.project_name}{marker} — "
+            f"{self.workflow.project_document.project_name}{marker} - "
             f"{APP_NAME}"
         )
 
@@ -1352,19 +1128,7 @@ class MainWindow(QMainWindow):
         if self.workflow.experiments[row] is not self.workflow.experiment:
             self._activate_comparison_experiment(row)
 
-    def _main_experiment_checked(self, item: QTableWidgetItem) -> None:
-        if item.column() != 0:
-            return
-        if item.checkState() == Qt.CheckState.Checked:
-            self._select_main_experiment(item.row())
-        else:
-            # La sélection est exclusive : décocher la ligne active la conserve.
-            with QSignalBlocker(self.experiments_table):
-                item.setCheckState(
-                    Qt.CheckState.Checked
-                    if self.workflow.experiments[item.row()] is self.workflow.experiment
-                    else Qt.CheckState.Unchecked
-                )
+
 
     def _assign_blank_to_row(
         self, row: int, blank: ExperimentData | None
@@ -1385,26 +1149,12 @@ class MainWindow(QMainWindow):
         if active:
             self._draw_placeholder(main_only=True)
             self.process_current()
+        if not active:
+            self._draw_comparison()
         self._update_action_state()
         self._update_title()
 
-    def choose_comparison_experiments(self) -> None:
-        paths, _ = QFileDialog.getOpenFileNames(
-            self,
-            _t('Ajouter des expériences à la comparaison'),
-            "",
-            FILE_FILTER,
-        )
-        for path in paths:
-            self._load_source(
-                path,
-                self.workflow.add_comparison_experiment,
-                _t('Expérience ajoutée'),
-            )
-        if paths:
-            self.comparison_panel.model.refresh()
-            self.comparison_panel.select_row(len(self.workflow.experiments) - 1)
-            self._comparison_changed()
+
 
     def _remove_comparison_experiments(self) -> None:
         rows = self.comparison_panel.selected_rows()
@@ -1426,15 +1176,19 @@ class MainWindow(QMainWindow):
         rows = self.comparison_panel.selected_rows()
         if len(rows) != 1:
             return
+        signal = self.comparison_panel.curve_signal_combo.currentData()
         target = self.workflow.move_comparison_experiment(rows[0], delta)
         self.comparison_panel.model.refresh()
-        self.comparison_panel.select_row(target)
+        self.comparison_panel.select_row(target, signal)
+        self._update_source_views()
         self._comparison_changed()
 
     def _activate_comparison_experiment(self, row: int) -> None:
         self.workflow.activate_comparison_experiment(row)
         self._restoring_project = True
         try:
+            record = self.workflow.comparison_record(row)
+            self.show_subtraction_check.setChecked(record["stage"] != "original" and record.get("show_subtraction", True))
             settings = self.workflow._normalization_overrides.get(
                 id(self.workflow.experiment),
                 self.workflow.project_document.normalization,
@@ -1511,13 +1265,11 @@ class MainWindow(QMainWindow):
             self.comparison_panel.model.refresh()
             if active:
                 self.process_current()
+            else:
+                self._draw_comparison()
         return blank
 
-    def show_comparison_window(self, _checked: bool = False) -> None:
-        self._draw_comparison()
-        self.comparison_dialog.show()
-        self.comparison_dialog.raise_()
-        self.comparison_dialog.activateWindow()
+
 
     def show_stoichiometry_window(self, _checked: bool = False) -> None:
         self.stoichiometry_dialog.setWindowState(
@@ -1553,28 +1305,11 @@ class MainWindow(QMainWindow):
         self.workflow.set_axes(
             display_axis=str(self.display_axis_combo.currentData()),
         )
-        if self.workflow.result is not None:
-            self._draw_result(self.workflow.result)
-        else:
-            self._refresh_zones_panel()
-        self.comparison_axis_combo.blockSignals(True)
-        self.comparison_axis_combo.setCurrentIndex(self.comparison_axis_combo.findData(self.workflow.display_axis))
-        self.comparison_axis_combo.blockSignals(False)
         self._draw_comparison()
         self._update_action_state()
         self._update_title()
 
-    def _sync_visible_signals(self, _checked: bool = False) -> None:
-        if self._restoring_project:
-            return
-        signals = self._visible_signals()
-        self.workflow.set_visible_signals(self._checked_signals())
-        if self.workflow.result is not None and signals:
-            self._draw_result(self.workflow.result)
-        elif self.workflow.result is not None:
-            self._draw_placeholder(main_only=True)
-        self._update_action_state()
-        self._update_title()
+
 
     def _normalization_changed(self) -> None:
         if self._restoring_project:
@@ -1592,8 +1327,8 @@ class MainWindow(QMainWindow):
             return
         self.normalization_panel.clear_validation()
         if result is not None:
+            self._set_active_stage(result)
             self._draw_result(result)
-            self._draw_comparison()
         self._update_action_state()
         self._update_title()
 
@@ -1648,12 +1383,33 @@ class MainWindow(QMainWindow):
     def _comparison_changed(self) -> None:
         if self._restoring_project:
             return
+        self.workflow.set_visible_signals(self.comparison_panel.checked_signals())
+        self._sync_interface_mode("main")
         self._draw_comparison()
+        if self.workflow.experiment is not None:
+            row = self.workflow.experiments.index(self.workflow.experiment)
+            with QSignalBlocker(self.show_subtraction_check):
+                record = self.workflow.comparison_record(row)
+                self.show_subtraction_check.setChecked(record["stage"] != "original" and record.get("show_subtraction", True))
         self._update_action_state()
         self._update_title()
 
+    def _update_stack_unit(self, *_args) -> None:
+        signal = self.comparison_panel.stack_signal_combo.currentData()
+        curves = getattr(self, '_comparison_curves', [])
+        unit = ''
+        if signal:
+            curve = next((item.for_signal(signal) for item in curves if item.for_signal(signal).visible), None)
+            if curve is not None:
+                unit = ComparisonPlot._unit_for_curve(
+                    curve, curve.plot_options or ComparisonOptions().plot_options, signal
+                )
+        self.comparison_panel.stack_spacing_spin.setSuffix(f" {plain_display_label(unit)}" if unit else '')
+
     def _auto_stack_comparison(self) -> None:
-        signals = self.comparison_panel.selected_signals()
+        panel = self.comparison_panel
+        signal = panel.stack_signal_combo.currentData()
+        signals = (signal,) if signal else ()
         if not signals:
             self.comparison_panel.show_validation(
                 _t('Sélectionnez au moins une courbe visible dans ce parcours.')
@@ -1665,13 +1421,17 @@ class MainWindow(QMainWindow):
                 x_axis=self.workflow.display_axis,
                 persist_signals=False,
             )
-            offsets = ComparisonPlot.automatic_offsets(curves, options)
-            if not offsets:
+            spacing = None if panel.auto_spacing_check.isChecked() else panel.stack_spacing_spin.value()
+            offsets = ComparisonPlot.automatic_offsets(curves, options, spacing=spacing)
+            if len(offsets) < 2:
                 self._set_messages(
-                    [*warnings, _t('Aucune courbe compatible à empiler.')]
+                    [*warnings, _t('Au moins deux courbes compatibles doivent être cochées pour empiler.')]
                 )
                 return
-            self.workflow.set_comparison_offsets(offsets)
+            if spacing is None:
+                spacing = max(offsets.values()) / (len(offsets) - 1)
+            self.workflow.set_comparison_offsets(offsets, signal=signal, spacing=spacing)
+            panel.set_stack_spacing(spacing)
         except (OSError, ValueError) as exc:
             self.comparison_panel.show_validation(_t(str(exc)))
             return
@@ -1680,47 +1440,132 @@ class MainWindow(QMainWindow):
         self._comparison_changed()
 
     def _zero_comparison_offsets(self) -> None:
+        self.comparison_panel.stack_timer.stop()
+        self.comparison_panel._stack_active = False
         self.workflow.set_comparison_offsets(
             {
                 self.workflow.comparison_key(experiment): 0.0
                 for experiment in self.workflow.experiments
             }
         )
+        self.workflow.set_mean_curve_settings(('tg', 'dtg', 'heat_flow'), {'y_offset': 0.0})
+        self.comparison_panel.set_stack_spacing(0, active=False)
+        self.comparison_panel.auto_spacing_check.setChecked(True)
         self.comparison_panel.model.refresh()
         self._comparison_changed()
 
     def _render_comparison(self, options, curves):
+        options.plot_options.thermal_program = (
+            self.workflow.active_thermal_program()
+            if any(curve.result.experiment is self.workflow.experiment for curve in curves) else None
+        )
+        options.plot_options.x_limits = options.x_limits
+        options.plot_options.graph_settings = options.graph_settings
+        options.plot_options.alignment_mode = self.workflow.project_document.display["alignment_mode"]
         options.plot_options.analysis_zones = self.analysis_zones.zones
         options.plot_options.selected_analysis_zone_id = self._selected_zone_id
         statistics_settings = self.workflow.project_document.comparison["statistics"]
         if statistics_settings["enabled"]:
             statistics = self.workflow.comparison_statistics_data(curves, options)
-            self.comparison_plot.draw_statistics(
+            self.plot.draw_statistics(
                 curves,
                 options,
                 statistics,
                 statistics_settings["display_mode"],
             )
             self.comparison_panel.set_statistics_summary(statistics)
-            self.comparison_plot.draw_zones(
+            self.plot.draw_zones(
                 curves, options,
-                show_heat_surfaces=statistics_settings["display_mode"] in {"individual", "mean_individual"},
+                show_heat_surfaces=statistics_settings["display_mode"] == "individual",
             )
+            if statistics_settings["display_mode"] != "individual":
+                self._draw_mean_zone_area(statistics, options)
             return statistics
-        self.comparison_plot.draw(curves, options)
-        self.comparison_plot.draw_zones(curves, options)
+        self.plot.draw(curves, options)
+        self.plot.draw_zones(curves, options)
         self.comparison_panel.set_statistics_summary([])
         return []
+
+    def _draw_mean_zone_area(self, statistics, options):
+        zone = self.analysis_zones.get(self._selected_zone_id) if self._selected_zone_id else None
+        axis = self.plot.axes.get("heat_flow")
+        if zone is None or axis is None or zone.axis_type != self.workflow.display_axis:
+            return
+        x_limits, y_limits = axis.get_xlim(), axis.get_ylim()
+        for item in statistics:
+            if item.signal != "heat_flow" or self.plot._statistics_exclusion_reason(item, None):
+                continue
+            try:
+                profile = mean_heat_flow_profile(item, zone, axis_type=self.workflow.display_axis,
+                                                representation=self._mean_heat_representation(item))
+            except ValueError:
+                continue  # The results table carries the existing zone/context error.
+            draw_heat_flow_zone(axis, profile, offset=options.mean_styles.get('heat_flow', {}).get('y_offset', 0.0),
+                show_baseline=zone.show_baseline and options.plot_options.show_zone_baselines,
+                show_surfaces=options.plot_options.show_zone_surfaces, positive_color=zone.positive_area_color or "#0072B2",
+                negative_color=zone.negative_area_color or "#D55E00", baseline_color=zone.baseline_color or "#7A3E9D")
+        axis.set_xlim(x_limits)
+        axis.set_ylim(y_limits)
+    def _open_legend_settings(self) -> None:
+        from .legend_dialog import LegendDialog
+        from atg_dsc_corrector.legend import legend_entries
+        entries = getattr(self.plot.axis, "_thermalcurve_legend_entries", ())
+        handles, labels = zip(*entries) if entries else ([], [])
+        dialog = LegendDialog(self.workflow.project_document.comparison["graph"],
+                              legend_entries(handles, labels), self._apply_legend_settings, self,
+                              axes_bounds=self.plot.axis.get_position().bounds)
+        dialog.exec()
+
+    def _apply_legend_settings(self, graph) -> None:
+        from atg_dsc_corrector.legend import validate_legend_text
+        previous = deepcopy(self.workflow.project_document.comparison)
+        previous_display = deepcopy(self.workflow.project_document.display)
+        dirty = self.workflow.project_dirty
+        entries = getattr(self.plot.axis, "_thermalcurve_legend_entries", ())
+        handles, labels = zip(*entries) if entries else ([], [])
+        try:
+            validate_legend_text(graph)
+            self.workflow.set_comparison_graph_settings(
+                graph=graph, limits=previous["limits"], align_zeros=previous["align_zeros"],
+                show_offsets_in_legend=previous["show_offsets_in_legend"], rows=[], curve_changes={})
+            self.workflow.set_main_graph_settings(graph=graph, limits=previous_display["limits"],
+                                                  alignment_mode=previous_display["alignment_mode"])
+            draw_graph_legend(self.plot.axis, handles, labels, graph)
+            self.canvas.draw()  # Validate mathematical text before keeping the settings.
+        except (ValueError, OSError):
+            self.workflow.project_document.comparison = previous
+            self.workflow.project_document.display = previous_display
+            self.workflow.project_dirty = dirty
+            draw_graph_legend(self.plot.axis, handles, labels, previous["graph"])
+            self._bind_legend_drag()
+            self.canvas.draw_idle()
+            raise ValueError(_t("La légende n'a pas pu être appliquée. Vérifiez le texte mathématique et les réglages.")) from None
+        self._bind_legend_drag()
+        self._update_title()
+
+    def _bind_legend_drag(self) -> None:
+        from atg_dsc_corrector.legend import LegendDrag
+        legend = self.plot.axis.get_legend() if self.plot.axis is not None else None
+        if legend is not None and legend._draggable is None:
+            legend._draggable = LegendDrag(legend, self._legend_moved)
+
+    def _legend_moved(self, style) -> None:
+        for settings in (self.workflow.project_document.comparison, self.workflow.project_document.display):
+            settings["graph"]["legend_position"] = "manual"
+            settings["graph"]["legend_style"] = deepcopy(style)
+        self.workflow.mark_dirty()
+        self._update_title()
+
     def _draw_comparison(self, *, propagate_errors: bool = False) -> None:
         self._comparison_statistics = []
         self._cancel_graphical_zone_selection()
-        self._sync_interface_mode("comparison")
+        self._sync_interface_mode("main")
         signals = self.comparison_panel.selected_signals()
         if not signals:
             message = _t('Sélectionnez au moins une courbe visible dans ce parcours.')
             self._set_comparison_messages(message)
             self._comparison_curves = []
-            self.comparison_plot.draw(
+            self.plot.draw(
                 [],
                 ComparisonOptions(
                     graph_settings=self.workflow.project_document.comparison[
@@ -1728,7 +1573,7 @@ class MainWindow(QMainWindow):
                     ]
                 ),
             )
-            self.comparison_canvas.draw_idle()
+            self.canvas.draw_idle()
             self._refresh_zones_panel()
             return
         try:
@@ -1738,6 +1583,7 @@ class MainWindow(QMainWindow):
                 persist_signals=False,
             )
             self._comparison_curves = curves
+            self._update_stack_unit()
             self._comparison_statistics = self._render_comparison(options, curves)
         except (OSError, ValueError) as exc:
             if propagate_errors:
@@ -1745,7 +1591,7 @@ class MainWindow(QMainWindow):
             self._set_messages([_t(str(exc))])
             self._set_comparison_messages(_t(str(exc)))
             self._comparison_curves = []
-            self.comparison_plot.draw(
+            self.plot.draw(
                 [],
                 ComparisonOptions(
                     graph_settings=self.workflow.project_document.comparison[
@@ -1753,14 +1599,20 @@ class MainWindow(QMainWindow):
                     ]
                 ),
             )
-            self.comparison_canvas.draw_idle()
+            self.canvas.draw_idle()
             self._refresh_zones_panel()
             return
         self.workflow.project_document.comparison["colors"] = dict(
-            self.comparison_plot.colors
+            self.plot.colors
         )
-        self.comparison_canvas.draw_idle()
-        messages = [*warnings, *self.comparison_plot.warnings]
+        self._bind_legend_drag()
+        self.canvas.draw_idle()
+        statistics = self.workflow.project_document.comparison["statistics"]
+        self.display_stage_label.setText(
+            STAT_DISPLAY_LABELS[statistics["display_mode"]] if statistics["enabled"]
+            else _t('{v0} expérience(s) affichée(s)', v0=len(curves))
+        )
+        messages = [*warnings, *self.plot.warnings]
         if messages:
             self._set_messages(messages)
         self._set_comparison_messages("\n".join(messages))
@@ -1811,28 +1663,24 @@ class MainWindow(QMainWindow):
         if payload is None:
             return
         options, curves, warnings = payload
-        if self.workflow.experiments:
-            source = self.workflow.experiments[0].source_path
-            default_path = source.with_name(f"{source.stem}_comparaison.csv")
+        if curves:
+            source = curves[0].result.experiment.source_path
+            suffix = "export" if len(curves) == 1 else "comparaison"
+            default_path = source.with_name(f"{source.stem}_{suffix}.xlsx")
         else:
-            default_path = Path("comparaison.csv")
+            default_path = Path("comparaison.xlsx")
         destination, selected_filter = QFileDialog.getSaveFileName(
             self,
             _t('Exporter les séries tracées'),
             str(default_path),
-            _t('CSV (*.csv);;TSV (*.tsv);;Tous les fichiers (*)'),
+            _t('Classeur Excel (*.xlsx)'),
         )
         if not destination:
             return
         requested = Path(destination)
-        kind = (
-            "tsv"
-            if requested.suffix.lower() == ".tsv" or selected_filter.startswith("TSV")
-            else "csv"
-        )
-        target = requested.with_suffix(f".{kind}")
-        metadata = target.with_suffix(".json")
-        if not self._confirm_comparison_overwrite([target, metadata]):
+        kind = "xlsx"
+        target = requested.with_suffix(".xlsx")
+        if not self._confirm_comparison_overwrite([target]):
             return
         try:
             settings = self.workflow.project_document.comparison["statistics"]
@@ -1840,7 +1688,7 @@ class MainWindow(QMainWindow):
                 self.workflow.comparison_statistics_data(curves, options)
                 if settings["enabled"] else []
             )
-            data_path, json_path = export_visible_curves(
+            data_path = export_visible_curves(
                 curves,
                 options,
                 target,
@@ -1856,79 +1704,18 @@ class MainWindow(QMainWindow):
         self._set_messages(
             [
                 _t('Séries tracées exportées : {v1}', v1=data_path),
-                _t('Métadonnées exportées : {v1}', v1=json_path),
                 *warnings,
             ]
         )
         self.statusBar().showMessage(_t('Export de comparaison terminé'), 5000)
 
-    def _export_comparison_statistics(self) -> None:
-        payload = self._comparison_export_payload()
-        if payload is None:
-            return
-        options, curves, warnings = payload
-        settings = self.workflow.project_document.comparison["statistics"]
-        if not settings["groups"]:
-            QMessageBox.information(
-                self,
-                _t('Export des statistiques'),
-                _t("Aucun groupe de répétitions n'est défini."),
-            )
-            return
-        statistics = self.workflow.comparison_statistics_data(curves, options)
-        if self.workflow.experiments:
-            source = self.workflow.experiments[0].source_path
-            default_path = source.with_name(f"{source.stem}_statistiques.csv")
-        else:
-            default_path = Path("statistiques.csv")
-        destination, selected_filter = QFileDialog.getSaveFileName(
-            self,
-            _t('Exporter les statistiques de répétitions'),
-            str(default_path),
-            _t('CSV (*.csv);;TSV (*.tsv);;Tous les fichiers (*)'),
-        )
-        if not destination:
-            return
-        requested = Path(destination)
-        kind = (
-            "tsv"
-            if requested.suffix.lower() == ".tsv" or selected_filter.startswith("TSV")
-            else "csv"
-        )
-        target = requested.with_suffix(f".{kind}")
-        metadata = target.with_suffix(".json")
-        if not self._confirm_comparison_overwrite([target, metadata]):
-            return
-        try:
-            data_path, json_path = export_group_statistics(
-                statistics,
-                options,
-                target,
-                kind,
-                grid_method=settings["grid_method"],
-                manual_points=settings["manual_points"],
-                curves=curves,
-                protected_paths=self.workflow.protected_paths(),
-                overwrite=True,
-            )
-        except (OSError, ValueError, ComparisonExportError) as exc:
-            self._show_error(_t('Export des statistiques impossible'), exc)
-            return
-        self._set_messages(
-            [
-                _t('Statistiques exportées : {v1}', v1=data_path),
-                _t('Métadonnées exportées : {v1}', v1=json_path),
-                *warnings,
-            ]
-        )
-        self.statusBar().showMessage(_t('Export des statistiques terminé'), 5000)
     def _export_comparison_figure(self) -> None:
         payload = self._comparison_export_payload()
         if payload is None:
             return
         options, curves, warnings = payload
         self._render_comparison(options, curves)
-        self.comparison_canvas.draw_idle()
+        self.canvas.draw_idle()
         if self.workflow.experiments:
             source = self.workflow.experiments[0].source_path
             default_path = source.with_name(f"{source.stem}_comparaison.png")
@@ -1954,7 +1741,7 @@ class MainWindow(QMainWindow):
             return
         try:
             figure_path = export_figure(
-                self.comparison_figure,
+                self.figure,
                 target,
                 kind,
                 dpi=300,
@@ -2021,8 +1808,9 @@ class MainWindow(QMainWindow):
                 settings,
                 show_subtraction=self.show_subtraction_check.isChecked(),
             )
+            if mark_normalization_dirty:
+                self._set_active_stage(result)
             self._draw_result(result)
-            self._draw_comparison()
         except (OSError, ValueError) as exc:
             self.workflow.result = None
             self._draw_placeholder(main_only=True)
@@ -2042,7 +1830,7 @@ class MainWindow(QMainWindow):
         experiment = self.workflow.experiment
         if experiment is None:
             raise ValueError(_t("Aucune expérience n'est chargée."))
-        if panel is self.comparison_zones_panel:
+        if panel is None or panel is self.zones_panel:
             grids = [x_values(curve.result, axis_type) for curve in self._comparison_curves]
             grids = [grid for grid in grids if grid is not None]
             if not grids:
@@ -2084,7 +1872,7 @@ class MainWindow(QMainWindow):
     ) -> tuple[str | None, str | None]:
         if baseline_method != "constant" or baseline_value is None:
             return None, None
-        if panel is self.comparison_zones_panel:
+        if panel is None or panel is self.zones_panel:
             contexts = [
                 self._heat_flow_context(
                     curve.result.experiment,
@@ -2118,64 +1906,45 @@ class MainWindow(QMainWindow):
         )
         return self._heat_flow_context(experiment, str(representation))
 
-    def _add_analysis_zone(self, _checked: bool = False, *, panel: ZonesPanel | None = None) -> None:
-        panel = panel or self.zones_panel
-        try:
-            name, start, end, baseline, baseline_value = panel.editor_values(self.workflow.display_axis)
-            baseline_representation, baseline_unit = self._constant_baseline_context(
-                panel,
-                baseline,
-                baseline_value,
-            )
-            zone = self.analysis_zones.create_manual(
-                name,
-                self.workflow.display_axis,
-                start,
-                end,
-                self._experimental_zone_domain(self.workflow.display_axis, panel=panel),
-                baseline,
-                baseline_value,
-                baseline_representation,
-                baseline_unit,
-            )
-        except (KeyError, ValueError) as exc:
-            panel.show_validation(_t(str(exc)))
-            return
-        panel.clear_validation()
-        self._after_analysis_zone_change(zone.identifier)
-        self.statusBar().showMessage(_t('Zone créée : {v1}', v1=zone.name), 5000)
+    def _add_analysis_zone(self, checked=False) -> None:
+        self._panels["bottom"][3].setChecked(True)
+        self.zones_panel.tabs.setCurrentIndex(0)
+        self._toggle_graphical_zone_selection(checked)
 
-    def _update_analysis_zone(self, _checked: bool = False, *, panel: ZonesPanel | None = None) -> None:
-        panel = panel or self.zones_panel
-        identifier = panel.selected_zone_id()
-        if identifier is None:
-            panel.show_validation(_t('Sélectionner une zone à modifier.'))
-            return
+    def _edit_analysis_zone(self, identifier: str, changes: dict) -> None:
+        panel = self.zones_panel
         try:
             current = self.analysis_zones.get(identifier)
-            name, start, end, baseline, baseline_value = panel.editor_values(current.axis_type)
-            baseline_representation, baseline_unit = self._constant_baseline_context(
-                panel,
-                baseline,
-                baseline_value,
-            )
-            zone = self.analysis_zones.update(
-                identifier,
-                name=name,
-                start=start,
-                end=end,
-                displayed_domain=self._experimental_zone_domain(current.axis_type, panel=panel),
-                baseline_method=baseline,
-                baseline_value=baseline_value,
-                baseline_representation=baseline_representation,
-                baseline_unit=baseline_unit,
-            )
+            fields = dict(changes)
+            if "baseline_method" in fields or "baseline_value" in fields:
+                method = fields.get("baseline_method", current.baseline_method)
+                value = fields.get("baseline_value", current.baseline_value) if method == "constant" else None
+                representation, unit = self._constant_baseline_context(panel, method, value)
+                fields.update(baseline_method=method, baseline_value=value,
+                              baseline_representation=representation, baseline_unit=unit)
+            if current.axis_type in {"furnace_temperature", "sample_temperature"}:
+                fields["start"], fields["end"] = sorted((fields.get("start", current.start), fields.get("end", current.end)))
+            candidate = replace(current, **fields)
+            zone = self.analysis_zones.update(identifier, name=candidate.name,
+                start=candidate.start, end=candidate.end,
+                displayed_domain=self._experimental_zone_domain(current.axis_type),
+                baseline_method=candidate.baseline_method, baseline_value=candidate.baseline_value,
+                baseline_representation=candidate.baseline_representation, baseline_unit=candidate.baseline_unit)
         except (KeyError, ValueError) as exc:
             panel.show_validation(_t(str(exc)))
             return
         panel.clear_validation()
         self._after_analysis_zone_change(zone.identifier)
-        self.statusBar().showMessage(_t('Zone modifiée : {v1}', v1=zone.name), 5000)
+
+    def _edit_zone_appearance(self, identifier: str) -> None:
+        current = self.analysis_zones.get(identifier)
+        dialog = ZoneAppearanceDialog(current, self)
+        if dialog.exec() == ZoneAppearanceDialog.DialogCode.Accepted:
+            updated = replace(current, **dialog.values())
+            self.analysis_zones.replace(updated if zone.identifier == identifier else zone
+                                        for zone in self.analysis_zones.zones)
+            self._after_analysis_zone_change(identifier)
+        dialog.deleteLater()
 
     def _delete_analysis_zone(self, _checked: bool = False, *, panel: ZonesPanel | None = None) -> None:
         panel = panel or self.zones_panel
@@ -2191,7 +1960,6 @@ class MainWindow(QMainWindow):
             return
         panel.clear_validation()
         self._after_analysis_zone_change(None)
-        panel.prepare_new_zone(self.analysis_zones.next_name())
         self.statusBar().showMessage(_t('Zone supprimée : {v1}', v1=name), 5000)
 
     def _on_active_analysis_zone_changed(self, identifier: str) -> None:
@@ -2240,10 +2008,9 @@ class MainWindow(QMainWindow):
     def _start_graphical_zone_selection(self, *, panel: ZonesPanel | None = None) -> None:
         self._cancel_graphical_zone_selection()
         panel = panel or self.zones_panel
-        comparison = panel is self.comparison_zones_panel
-        axis = self.comparison_plot.axis if comparison else self.plot.primary_axis
-        toolbar = self.comparison_toolbar if comparison else self.toolbar
-        available = bool(self._comparison_curves) if comparison else self.workflow.result is not None
+        axis = self.plot.axis
+        toolbar = self.toolbar
+        available = bool(self._comparison_curves)
         if not available or axis is None:
             panel.show_validation(
                 _t("Traiter l'expérience avant de sélectionner une zone sur le graphe.")
@@ -2284,9 +2051,9 @@ class MainWindow(QMainWindow):
         if not np.isfinite(first) or not np.isfinite(second) or first == second:
             panel.show_validation(_t('La sélection graphique est vide.'))
             return
-        name = panel.name_entry.text().strip()
+        name = self.analysis_zones.next_name()
         try:
-            baseline, baseline_value = panel.baseline_values()
+            baseline, baseline_value = "none", None
             baseline_representation, baseline_unit = self._constant_baseline_context(
                 panel,
                 baseline,
@@ -2319,8 +2086,6 @@ class MainWindow(QMainWindow):
             selector.disconnect_events()
         if hasattr(self, "zones_panel"):
             self.zones_panel.set_graph_selection_active(False)
-        if hasattr(self, "comparison_zones_panel"):
-            self.comparison_zones_panel.set_graph_selection_active(False)
 
     def _on_plot_key_press(self, event) -> None:
         if event.key == "escape":
@@ -2330,258 +2095,105 @@ class MainWindow(QMainWindow):
     def _refresh_zones_panel(self) -> None:
         if not hasattr(self, "zones_panel"):
             return
-        for panel in (self.zones_panel, self.comparison_zones_panel):
-            panel.set_zones(self.analysis_zones.zones, self._selected_zone_id, self.workflow.display_axis)
-        self.zones_panel.set_availability(
-            self.workflow.experiment is not None,
-            self.workflow.result is not None,
-        )
-        self.comparison_zones_panel.set_availability(bool(self._comparison_curves), bool(self._comparison_curves))
+        self.zones_panel.set_zones(self.analysis_zones.zones, self._selected_zone_id, self.workflow.display_axis)
+        self.zones_panel.set_availability(bool(self._comparison_curves), bool(self._comparison_curves))
         self._refresh_zone_quantification()
 
     def _refresh_zone_quantification(self) -> None:
-        self._refresh_open_zone_results()
-        self.comparison_results_table.setRowCount(0)
-        self.comparison_count_label.setText(_t('{v0} courbe(s) visible(s)', v0=len(self._comparison_curves)))
-        statistics_settings = self.workflow.project_document.comparison["statistics"]
-        if statistics_settings["enabled"]:
-            self.comparison_count_label.setText(_t('Affichage : ') + STAT_DISPLAY_LABELS[statistics_settings["display_mode"]])
-        band = statistics_settings["enabled"] and statistics_settings["display_mode"] == "mean_band"
-        self.comparison_results_table.setHorizontalHeaderLabels(
-            (_t('Série'), _t('Zone'), _t('Début'), _t('Fin'), _t('Variation'), _t('Basse / haute') if band else _t('Complément'))
-        )
-        self.comparison_zones_panel.set_results("")
-        identifier = self._selected_zone_id
-        if identifier is None:
-            self.zones_panel.set_results("")
-            return
-        try:
-            zone = self.analysis_zones.get(identifier)
-        except KeyError:
-            self.zones_panel.set_results("")
-            return
-        records = self._comparison_zone_results(zone)
-        for values, report in records:
-            table = self.comparison_results_table
-            row = table.rowCount()
-            table.insertRow(row)
-            for column, value in enumerate(values):
-                item = QTableWidgetItem(str(value))
-                item.setToolTip(report)
-                table.setItem(row, column, item)
-        self.comparison_zones_panel.set_results("\n\n".join(report for _, report in records))
-        if self.workflow.result is None:
-            self.zones_panel.set_results(
-                _t("Résultat corrigé indisponible. Traiter l'expérience pour quantifier la zone.")
-            )
-            return
-        quantified, reference_error = self.workflow.quantify_analysis_zone(zone)
-        self.zones_panel.set_results(
-            self._format_zone_quantification(quantified, reference_error)
-        )
+        records = [record for zone in self.analysis_zones.zones
+                   for record in self._comparison_zone_results(zone)]
+        self.zones_panel.set_records(records)
 
     def _comparison_zone_results(self, zone):
-        """Un même contenu pour la zone active et le rapport de toutes les zones."""
+        """Structured presentation of the same individual and statistical calculations."""
         settings = self.workflow.project_document.comparison["statistics"]
         mode = settings["display_mode"] if settings["enabled"] else "individual"
-        records = []
-        included = set()
-        expected_units = {}
+        records, included, expected_units, means = [], set(), {}, {}
         for statistics in self._comparison_statistics if settings["enabled"] else ():
-            # Même filtre d'unité et de disponibilité que le tracé des groupes.
-            if self.comparison_plot._statistics_exclusion_reason(statistics, expected_units.get(statistics.signal)):
+            if self.plot._statistics_exclusion_reason(statistics, expected_units.get(statistics.signal)):
                 continue
             expected_units.setdefault(statistics.signal, statistics.scientific_unit)
             included.update(statistics.included)
             if mode == "individual":
                 continue
-            label = _t('{v0} · {v2} · moyenne', v0=statistics.group.name, v2=SIGNAL_LABELS[statistics.signal])
-            unit = statistics.unit
-            delta_unit = _t('points de %') if unit == "%" else unit
-            complement = "—"
+            sample = next(curve.result.experiment for curve in self._comparison_curves if curve.identifier in statistics.included)
+            record = means.setdefault(statistics.group.identifier, dict(
+                experiment_key="mean:" + statistics.group.identifier,
+                experiment_name=statistics.group.name, zone_name=zone.name, zone_id=zone.identifier,
+                start=zone.start, end=zone.end, axis_type=zone.axis_type, axis_unit=axis_unit(sample, zone.axis_type),
+                baseline_method=zone.baseline_method, baseline_value=zone.baseline_value,
+                baseline_unit=zone.baseline_unit, baseline_representation=zone.baseline_representation,
+                statistics={}, status="OK", warnings=[], signals=[]))
+            signal = statistics.signal
+            record["signals"].append(signal)
+            detail = dict(stat_unit=statistics.unit, stat_delta_unit=_t("points de %") if statistics.unit == "%" else statistics.unit,
+                          stat_count=len(statistics.included))
+            record["statistics"][signal] = detail
+            members = [curve for curve in self._comparison_curves if curve.identifier in statistics.included]
+            representation = self._mean_heat_representation(statistics)
+            references = ()
+            if signal == 'tg':
+                representations = {curve.plot_options.tg_representation if curve.stage == 'normalized' and curve.plot_options else 'raw' for curve in members}
+                representation = next(iter(representations)) if len(representations) == 1 else None
+                references = tuple(self.workflow.zone_references(curve.result)[0] for curve in members)
+            quantified = quantify_mean_zone_signal(statistics, zone, axis_type=self.workflow.display_axis,
+                axis_unit=record["axis_unit"], representation=representation, references=references)
+            for key, value in asdict(quantified).items():
+                if key.startswith(signal + "_") or (signal == "tg" and key in {
+                    "delta_zone_mg", "delta_zone_pct_m0", "delta_zone_pct_reference", "remaining_mass_end_mg",
+                    "residual_mass_end_pct", "initial_mass_mg"}):
+                    record[key] = value
+            detail["valid_point_count"] = quantified.valid_point_count
+            counts = {item["valid_point_count"] for item in record["statistics"].values()}
+            record["valid_point_count"] = counts.pop() if len(counts) == 1 else None
+            record["warnings"].extend(_t(SIGNAL_LABELS[signal]) + " : " + _t(message) for message in quantified.warnings if message)
             try:
                 summary = quantify_group_zone(statistics, zone, axis_type=self.workflow.display_axis)
-                variation = f"{summary.delta:.6g} {delta_unit}"
-                report = (
-                    _t(
-                        ('{v0} · {v2}\n'
-                         'Bornes : {v4:g} → {v6:g} ({v8})\n'
-                         'Moyenne au début : {v10:.6g} {v12}\n'
-                         'Moyenne à la fin : {v14:.6g} {v16}\n'
-                         'Variation de la moyenne : {v18}\n'
-                         'Minimum / maximum dans la zone : {v20:.6g} / {v22:.6g} {v24}\n'
-                         "Répétitions incluses : {v26}. Valeurs dans l'unité du signal affiché, sans décalage "
-                         'visuel.'),
-                        v0=zone.name,
-                        v2=label,
-                        v4=zone.start,
-                        v6=zone.end,
-                        v8=AXIS_LABELS[zone.axis_type],
-                        v10=summary.start_mean,
-                        v12=unit,
-                        v14=summary.end_mean,
-                        v16=unit,
-                        v18=variation,
-                        v20=summary.minimum,
-                        v22=summary.maximum,
-                        v24=unit,
-                        v26=len(statistics.included),
-                    )
-                )
+                detail.update(stat_start_mean=summary.start_mean, stat_end_mean=summary.end_mean,
+                              stat_delta=summary.delta, stat_minimum=summary.minimum, stat_maximum=summary.maximum)
+                if signal == "tg":
+                    record.update(mean_tg_delta=summary.delta, mean_tg_unit=statistics.unit)
                 if mode == "mean_band":
+                    detail.update(stat_start_std=summary.start_std, stat_end_std=summary.end_std)
                     bounds = summary.delta_bounds
                     if bounds is None:
-                        report += _t('\nBande ±1 écart-type indisponible sur toute la zone (répétitions insuffisantes ou lacune).')
+                        record["warnings"].append(_t("Bande ±1 écart-type indisponible sur toute la zone."))
                     else:
-                        complement = f"[{bounds[0]:.4g} ; {bounds[1]:.4g}]"
-                        report += (
-                            _t(
-                                ('\n'
-                                 'Bande au début (basse / haute) : {v1:.6g} / {v3:.6g} {v5}\n'
-                                 'Bande à la fin (basse / haute) : {v7:.6g} / {v9:.6g} {v11}\n'
-                                 'Enveloppe de variation (basse / haute) : [{v13:.6g} ; {v15:.6g}] {v17}\n'
-                                 "Cette enveloppe combine les bornes de la bande ponctuelle ; ce n'est ni l'écart-type "
-                                 'de Δ ni un intervalle de confiance.'),
-                                v1=summary.start_mean - summary.start_std,
-                                v3=summary.start_mean + summary.start_std,
-                                v5=unit,
-                                v7=summary.end_mean - summary.end_std,
-                                v9=summary.end_mean + summary.end_std,
-                                v11=unit,
-                                v13=bounds[0],
-                                v15=bounds[1],
-                                v17=delta_unit,
-                            )
-                        )
+                        detail.update(stat_delta_low=bounds[0], stat_delta_high=bounds[1])
+                        record["warnings"].append(_t("L'enveloppe de variation combine les bandes aux bornes ; ce n'est ni l'écart-type de Δ ni un intervalle de confiance."))
             except ValueError as exc:
-                variation = _t('Indisponible')
-                report = f"{zone.name} · {label}\n{exc}"
-            records.append(((label, zone.name, f"{zone.start:g}", f"{zone.end:g}", variation, complement), report))
+                record["warnings"].append(_t(str(exc)))
+            if record["warnings"]:
+                record["status"] = "Avertissement"
+        records.extend(means.values())
         if mode in {"individual", "mean_individual"}:
             for curve in self._comparison_curves:
                 if not curve.visible or (settings["enabled"] and curve.identifier not in included):
                     continue
                 try:
                     result, error = self.workflow.quantify_analysis_zone(zone, curve=curve)
-                    report = self._format_zone_quantification(result, error, curve=curve)
-                    variation = "—" if result.delta_zone_mg is None else f"{result.delta_zone_mg:.6g} mg"
-                    complement = "—" if result.delta_zone_pct_m0 is None else _t('{v0:.6g} % de m0', v0=result.delta_zone_pct_m0)
+                    record = asdict(result)
+                    record["warnings"] = list(result.warnings)
+                    if error:
+                        record["warnings"].append(_t('Références de normalisation : {v1}', v1=error))
+                    if record["warnings"] and record["status"] == "OK":
+                        record["status"] = "Avertissement"
+                    options = curve.plot_options
+                    record["representations"] = "; ".join((options.tg_representation, options.dtg_representation,
+                                                           options.heat_flow_representation)) if options else ""
                 except (ValueError, KeyError) as exc:
-                    report = self._format_zone_error(zone, exc, experiment_name=curve.legend_name)
-                    variation, complement = _t('Indisponible'), "—"
-                records.append(((curve.legend_name, zone.name, f"{zone.start:g}", f"{zone.end:g}", variation, complement), report))
+                    record = dict(zone_id=zone.identifier, zone_name=zone.name, start=zone.start, end=zone.end,
+                                  axis_type=zone.axis_type, axis_unit=axis_unit(curve.result.experiment, zone.axis_type),
+                                  status="Indisponible", warnings=[_t(str(exc))])
+                record["experiment_name"] = curve.legend_name
+                record["signals"] = self._zone_result_signals(curve)
+                records.append(record)
         return records
 
-    def _format_zone_quantification(self, result, reference_error: str | None, *, curve=None) -> str:
-        axis_unit = result.axis_unit
-        normalization = self.workflow.project_document.normalization
-        tg_mode = normalization["tg_representation"]
-        dtg_mode = normalization["dtg_representation"]
-        heat_mode = normalization["heat_flow_representation"]
-        if curve is not None and curve.plot_options is not None:
-            tg_mode = curve.plot_options.tg_representation
-            dtg_mode = curve.plot_options.dtg_representation
-            heat_mode = curve.plot_options.heat_flow_representation
-        signals = self._zone_result_signals(curve)
-
-        def scope(
-            state: str,
-            mode: str,
-            normalized_modes: set[str],
-        ) -> str:
-            origin = {
-                "original": "original",
-                "corrected": _t('corrigé'),
-                "calculated": _t('calculé'),
-                "derived": _t('dérivé'),
-                "unavailable": "indisponible",
-            }.get(state, _t('indéterminé'))
-            if mode == "raw":
-                return _t('{v0}, représentation brute', v0=origin)
-            if mode in normalized_modes:
-                return _t('{v0}, représentation normalisée', v0=origin)
-            return _t('{v0}, représentation dérivée', v0=origin)
-
-        def number(value: float | None, unit: str = "") -> str:
-            if value is None:
-                return "—"
-            rendered = f"{value:.8g}"
-            return f"{rendered} {unit}" if unit else rendered
-
-        lines = [
-            f"{result.zone_name} — {_t(result.status)}",
-            (
-                _t(
-                    'Axe : {v1} ; bornes {v3} à {v5}',
-                    v1=AXIS_LABELS.get(result.axis_type, result.axis_type),
-                    v3=number(result.start, axis_unit),
-                    v5=number(result.end, axis_unit),
-                )
-            ),
-            _t('Expérience : {v1} ; points valides : {v3}', v1=result.experiment_name, v3=result.valid_point_count),
-            _t("Les coordonnées proviennent de l'expérience ; aucune donnée source n'est modifiée."),
-        ]
-        if "tg" in signals:
-            lines.extend([
-                "",
-                f"TG ({scope(result.tg_state, tg_mode, {'normalized_mg_mg', 'normalized_pct'})})",
-                _t('  Variation dans la zone : {v1}', v1=number(result.delta_zone_mg, 'mg')),
-                _t('  Variation / m0 : {v1}', v1=number(result.delta_zone_pct_m0, '%')),
-                _t('  Variation / référence : {v1}', v1=number(result.delta_zone_pct_reference, '%')),
-                _t('  Masse restante en fin de zone : {v1}', v1=number(result.remaining_mass_end_mg, 'mg')),
-                _t('  Masse résiduelle en fin de zone : {v1}', v1=number(result.residual_mass_end_pct, '%')),
-            ])
-        if "dtg" in signals:
-            lines.extend([
-                "",
-                f"dTG ({scope(result.dtg_state, dtg_mode, {'per_mass', 'percent'})})",
-                _t('  Minimum : {v1} à {v3}', v1=number(result.dtg_minimum, result.dtg_unit), v3=number(result.dtg_minimum_position, axis_unit)),
-                _t('  Maximum : {v1} à {v3}', v1=number(result.dtg_maximum, result.dtg_unit), v3=number(result.dtg_maximum_position, axis_unit)),
-                _t(
-                    '  Pic principal : {v1} à {v3}',
-                    v1=number(result.dtg_main_peak, result.dtg_unit),
-                    v3=number(result.dtg_main_peak_position, axis_unit),
-                ),
-            ])
-        if "heat_flow" in signals:
-            lines.extend([
-                "",
-                (
-                    _t(
-                        'Flux de chaleur ({v1}; ligne de base {v3})',
-                        v1=scope(result.heat_flow_state, heat_mode, {'mw_mg', 'zero_mw_mg', 'w_g', 'zero_w_g', 'w_mg', 'zero_w_mg'}),
-                        v3=result.baseline_method,
-                    )
-                ),
-                _t(
-                    '  Minimum : {v1} à {v3}',
-                    v1=number(result.heat_flow_minimum, result.heat_flow_unit),
-                    v3=number(result.heat_flow_minimum_position, axis_unit),
-                ),
-                _t(
-                    '  Maximum : {v1} à {v3}',
-                    v1=number(result.heat_flow_maximum, result.heat_flow_unit),
-                    v3=number(result.heat_flow_maximum_position, axis_unit),
-                ),
-                _t(
-                    '  Pic principal : {v1} à {v3}',
-                    v1=number(result.heat_flow_main_peak, result.heat_flow_unit),
-                    v3=number(result.heat_flow_main_peak_position, axis_unit),
-                ),
-                _t('  Aire signée : {v1}', v1=number(result.heat_flow_area, result.heat_flow_area_unit)),
-                _t('  Aire au-dessus de la ligne de base : {v1}', v1=number(result.heat_flow_positive_area, result.heat_flow_area_unit)),
-                _t(
-                    '  Aire au-dessous de la ligne de base (signée) : {v1}',
-                    v1=number(result.heat_flow_negative_area, result.heat_flow_area_unit),
-                ),
-            ])
-        warnings = list(result.warnings)
-        if reference_error:
-            warnings.append(_t('Références de normalisation : {v1}', v1=reference_error))
-        if warnings:
-            lines.extend(("", _t('Avertissements :')))
-            lines.extend(f"  - {warning}" for warning in dict.fromkeys(warnings))
-        return "\n".join(lines)
+    def _mean_heat_representation(self, statistics):
+        representations = {curve.plot_options.heat_flow_representation if curve.stage == "normalized" and curve.plot_options else "raw"
+                           for curve in self._comparison_curves if curve.identifier in statistics.included}
+        return next(iter(representations)) if len(representations) == 1 else None
 
     def _zone_result_signals(self, curve=None) -> tuple[str, ...]:
         if curve is None:
@@ -2593,196 +2205,37 @@ class MainWindow(QMainWindow):
         return tuple(
             signal
             for signal in self.comparison_panel.selected_signals()
-            if signal != "heat_flow" or _has_source_heat_flow(curve.result.experiment)
+            if curve.signal_settings.get(signal, {}).get("visible", True)
+            and (signal != "heat_flow" or _has_source_heat_flow(curve.result.experiment))
         )
 
-    @staticmethod
-    def _format_zone_error(zone, error: Exception, *, experiment_name: str = "") -> str:
-        axis = AXIS_LABELS.get(zone.axis_type, zone.axis_type)
-        lines = [
-            _t('{v0} — indisponible', v0=zone.name),
-            _t('Axe : {v1} ; bornes {v3:.8g} à {v5:.8g}', v1=axis, v3=zone.start, v5=zone.end),
-        ]
-        if experiment_name:
-            lines.append(_t('Expérience : {v1}', v1=experiment_name))
-        lines.append(_t('Erreur : {v1}', v1=error))
-        return "\n".join(lines)
-
-    def _all_zone_results(self, context: str) -> tuple[str, str]:
-        zones = self.analysis_zones.zones
-        if context == "main":
-            title = _t('Tous les résultats — expérience active')
-            if self.workflow.experiment is None:
-                return title, _t('Aucune expérience active.')
-            if not zones:
-                return title, _t("Aucune zone d'analyse définie.")
-            blocks = []
-            for zone in zones:
-                try:
-                    quantified, reference_error = self.workflow.quantify_analysis_zone(zone)
-                    blocks.append(
-                        self._format_zone_quantification(quantified, reference_error)
-                    )
-                except (ValueError, KeyError) as exc:
-                    blocks.append(self._format_zone_error(zone, exc))
-            return title, "\n\n".join(blocks)
-
-        title = _t('Tous les résultats — comparaison')
-        if not zones:
-            return title, _t("Aucune zone d'analyse définie.")
-        curves = [curve for curve in self._comparison_curves if curve.visible]
-        if not curves:
-            return title, _t('Aucune courbe sélectionnée et visible à comparer.')
-        blocks = []
-        for zone in zones:
-            blocks.extend(report for _, report in self._comparison_zone_results(zone))
-        return title, "\n\n".join(blocks)
-
-    def _show_all_zone_results(self, context: str) -> None:
-        self._zone_results_context = context
-        self._refresh_open_zone_results(force=True)
-        self.zone_results_dialog.show()
-        self.zone_results_dialog.raise_()
-        self.zone_results_dialog.activateWindow()
-
-    def _refresh_open_zone_results(self, *, force: bool = False) -> None:
-        if self._zone_results_context is None:
-            return
-        if not force and not self.zone_results_dialog.isVisible():
-            return
-        title, text = self._all_zone_results(self._zone_results_context)
-        self.zone_results_dialog.set_report(title, text)
+    def _set_active_stage(self, result: CorrectionResult) -> None:
+        row = self.workflow.experiments.index(result.experiment)
+        record = self.workflow.comparison_record(row)
+        subtraction = self.show_subtraction_check.isChecked()
+        if record.get("show_subtraction", True) != subtraction:
+            record["show_subtraction"] = subtraction
+            self.workflow.mark_dirty()
+        stage = "normalized" if "normalization" in result.parameters else (
+            "corrected" if self.show_subtraction_check.isChecked() else "original"
+        )
+        self.workflow.set_comparison_value(row, "stage", stage)
+        self._refresh_main_experiments()
 
     def _draw_result(self, result: CorrectionResult) -> None:
-        stage = _t('Normalisé') if "normalization" in result.parameters else (
-            _t('Corrigé') if result.blank is not None else _t('Original')
-        )
-        self.display_stage_label.setText(stage)
-        self.display_stage_label.setToolTip(result.experiment.source_path.name)
-        self._cancel_graphical_zone_selection()
-        self._sync_interface_mode("main")
-        signals = self._visible_signals()
-        if not signals:
-            raise ValueError(_t('Sélectionner au moins une courbe à afficher.'))
-        display = self.workflow.project_document.display
-        limits = display["limits"]
-        normalization = self.workflow.project_document.normalization
-        normalized = "normalization" in result.parameters
-        options = PlotOptions(
-            x_axis=self.workflow.display_axis,
-            signals=signals,
-            x_limits=tuple(limits["x"]),
-            y_limits={
-                role: tuple(limits[role])
-                for role in ("tg", "dtg", "heat_flow")
-            },
-            align_zeros=display["align_zeros"],
-            alignment_mode=display["alignment_mode"],
-            tg_representation=(
-                normalization["tg_representation"] if normalized else "raw"
-            ),
-            dtg_representation=(
-                normalization["dtg_representation"] if normalized else "raw"
-            ),
-            heat_flow_representation=(
-                normalization["heat_flow_representation"] if normalized else "raw"
-            ),
-            reference_name=normalization["reference_name"] if normalized else "",
-            analysis_zones=self.analysis_zones.zones,
-            selected_analysis_zone_id=self._selected_zone_id,
-            show_zone_surfaces=display["show_zone_surfaces"],
-            show_zone_baselines=display["show_zone_baselines"],
-            graph_settings=display["graph"],
-        )
-        self.plot.draw([result], options)
-        self.canvas.draw()
-        self._refresh_zones_panel()
+        self._draw_comparison()
 
     def _draw_placeholder(self, *, main_only: bool = False) -> None:
         self.display_stage_label.setText(_t('Aucun résultat'))
         self._cancel_graphical_zone_selection()
-        self._sync_interface_mode("main")
-        if not main_only:
-            self._sync_interface_mode("comparison")
-            self._comparison_curves = []
-            self._comparison_statistics = []
-            self.comparison_plot.draw(
-                [],
-                ComparisonOptions(
-                    graph_settings=self.workflow.project_document.comparison[
-                        "graph"
-                    ]
-                ),
-            )
-            self.comparison_canvas.draw_idle()
-        display = self.workflow.project_document.display
-        self.plot.draw(
-            [],
-            PlotOptions(
-                signals=("tg",),
-                x_limits=tuple(display["limits"]["x"]),
-                y_limits={"tg": tuple(display["limits"]["tg"])},
-                graph_settings=display["graph"],
-            ),
-        )
+        self._comparison_curves = []
+        self._comparison_statistics = []
+        self.plot.draw([], ComparisonOptions(graph_settings=self.workflow.project_document.comparison["graph"]))
         self.canvas.draw_idle()
         self._refresh_zones_panel()
 
     def choose_export(self) -> None:
-        result = self.workflow.result
-        if result is None:
-            QMessageBox.information(
-                self,
-                "Export",
-                _t("Traiter d'abord une expérience avec un blanc."),
-            )
-            return
-        filters = _t('CSV français + JSON (*.csv);;TSV international + JSON (*.tsv)')
-        destination, selected_filter = QFileDialog.getSaveFileName(
-            self,
-            _t('Exporter le résultat'),
-            str(
-                result.experiment.source_path.with_name(
-                    f"{result.experiment.source_path.stem}_corrige.csv"
-                )
-            ),
-            filters,
-        )
-        if not destination:
-            return
-        requested = Path(destination)
-        selected_kind = "tsv" if selected_filter.startswith("TSV") else "csv"
-        suffix = requested.suffix.lower()
-        kind = suffix.lstrip(".") if suffix in {".csv", ".tsv"} else selected_kind
-        target = requested.with_suffix(f".{kind}")
-        if not self._confirm_comparison_overwrite(
-            [target, target.with_suffix(".json")]
-        ):
-            return
-        self.export_action.setEnabled(False)
-        self.statusBar().showMessage(_t('Export en cours…'))
-        QApplication.processEvents(
-            QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
-        )
-        try:
-            files = self.workflow.export_current(target, kind, overwrite=True)
-        except (OSError, ValueError) as exc:
-            self._show_error(_t('Export impossible'), exc)
-            return
-        finally:
-            self._update_action_state()
-        self._set_messages(
-            [
-                _t('Tableau exporté : {v1}', v1=files.data_path),
-                _t('Métadonnées exportées : {v1}', v1=files.json_path),
-                *(
-                    [_t("Format {v1} retenu selon l'extension du fichier.", v1=kind.upper())]
-                    if suffix in {".csv", ".tsv"} and kind != selected_kind
-                    else []
-                ),
-            ]
-        )
-        self.statusBar().showMessage(_t('Export terminé'), 5000)
+        self._export_comparison_data()
 
     def _update_source_views(self) -> None:
         self._refresh_main_experiments()
@@ -2792,8 +2245,10 @@ class MainWindow(QMainWindow):
         )
 
     def _refresh_main_experiments(self) -> None:
+        self.comparison_panel.model.refresh()
+
+    def _refresh_blank_buttons(self) -> None:
         with QSignalBlocker(self.experiments_table):
-            self.experiments_table.setRowCount(len(self.workflow.experiments))
             loaded_blanks: dict[Path, ExperimentData] = {}
             for row in range(len(self.workflow.experiments)):
                 candidate = self.workflow.comparison_blank(row)
@@ -2807,26 +2262,9 @@ class MainWindow(QMainWindow):
                 blank_name_counts[name] = blank_name_counts.get(name, 0) + 1
             for row, experiment in enumerate(self.workflow.experiments):
                 blank = self.workflow.comparison_blank(row)
-                active = experiment is self.workflow.experiment
-                item = self.experiments_table.item(row, 0)
-                if item is None:
-                    item = QTableWidgetItem()
-                    self.experiments_table.setItem(row, 0, item)
-                kind = "ATG-DSC" if _has_source_heat_flow(experiment) else "ATG"
-                item.setText(f"{experiment.source_path.name}\n{kind}")
-                item.setToolTip(str(experiment.source_path))
-                item.setFlags(
-                    Qt.ItemFlag.ItemIsEnabled
-                    | Qt.ItemFlag.ItemIsSelectable
-                    | Qt.ItemFlag.ItemIsUserCheckable
-                )
-                item.setCheckState(
-                    Qt.CheckState.Checked if active else Qt.CheckState.Unchecked
-                )
-
                 button = QToolButton(self.experiments_table)
                 button.setObjectName("mainBlankButton")
-                button.setText(blank.source_path.name if blank is not None else "—")
+                button.setText(blank.source_path.name if blank is not None else "-")
                 button.setToolTip(
                     str(blank.source_path) if blank is not None else _t('Aucun blanc associé')
                 )
@@ -2881,9 +2319,7 @@ class MainWindow(QMainWindow):
                     )
                 )
                 button.setMenu(menu)
-                self.experiments_table.setCellWidget(row, 1, button)
-                if active:
-                    self.experiments_table.setCurrentCell(row, 0)
+                self.experiments_table.setIndexWidget(self.comparison_panel.model.index(row, 3), button)
 
     def _set_source_view(
         self,
@@ -2900,23 +2336,23 @@ class MainWindow(QMainWindow):
 
     def _update_action_state(self) -> None:
         with QSignalBlocker(self.align_zeros_check):
-            self.align_zeros_check.setChecked(self.workflow.project_document.display["alignment_mode"] == "zeros")
+            self.align_zeros_check.setChecked(self.workflow.project_document.comparison["align_zeros"])
         self._sync_interface_mode("main")
-        self._sync_interface_mode("comparison")
         ready = self.workflow.experiment is not None
         self.open_blank_action.setEnabled(ready)
         has_result = self.workflow.result is not None
         self.process_button.setEnabled(ready and bool(self._visible_signals()))
-        self.export_action.setEnabled(has_result)
+        self.export_action.setEnabled(bool(self._comparison_curves))
         self.graph_settings_action.setEnabled(ready)
+        self.thermal_program_action.setEnabled(ready)
         self.save_project_action.setEnabled(self.workflow.project_dirty)
         self.save_project_as_action.setEnabled(True)
         comparison_available = bool(self.workflow.experiments)
-        self.comparison_graph_settings_action.setEnabled(comparison_available)
         self.comparison_panel.set_availability(comparison_available)
+        self.export_figure_action.setEnabled(bool(self._comparison_curves))
         self.zones_panel.set_availability(
-            self.workflow.experiment is not None,
-            has_result,
+            bool(self._comparison_curves),
+            bool(self._comparison_curves),
         )
 
     def _set_messages(self, lines: list[str]) -> None:
@@ -2925,8 +2361,8 @@ class MainWindow(QMainWindow):
         self.messages_button.setText(_t('Informations ({v1})', v1=len([line for line in lines if line])))
 
     def _set_comparison_messages(self, text: str) -> None:
-        self._comparison_message_text = text
-        self.comparison_messages_button.setToolTip(text or _t('Aucun message.'))
+        if text:
+            self._set_messages(text.splitlines())
 
     def _missing_source_handler(
         self,

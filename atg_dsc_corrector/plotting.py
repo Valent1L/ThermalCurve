@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
-from atg_dsc_corrector.i18n import tr as _t
+from .models import TIME_AXIS_SECONDS
+
+from atg_dsc_corrector.i18n import tr as _t, decimal_text, language
 
 from dataclasses import dataclass, field
+from copy import copy
 from typing import Iterable
 
 import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
+from matplotlib.transforms import blended_transform_factory
+from matplotlib.legend import Legend
 from matplotlib.font_manager import FontProperties, findfont
 from matplotlib.ticker import (
     AutoMinorLocator,
@@ -22,6 +27,7 @@ from matplotlib.ticker import (
 )
 
 from .analysis_zones import AnalysisZone
+from .curve_styles import mpl_line_style
 from .labels import (
     format_unit,
     tg_normalized_labels,
@@ -34,6 +40,7 @@ from .normalization import (
     signal_source_state,
 )
 from .thermal_segments import ThermalSegmentationError, segment_temperature_series
+from .thermal_program import thermal_program_points
 from .zone_quantification import HeatFlowZoneProfile, heat_flow_zone_profile
 
 
@@ -64,6 +71,7 @@ NEUTRAL_AXIS_COLOR = "black"
 X_LABELS = {
     "time_s": _t('Temps (s)'),
     "time_min": _t('Temps (min)'),
+    "time_h": _t('Temps (h)'),
     "furnace_temperature": _t('Température du four (°C)'),
     "sample_temperature": _t("Température de l'échantillon (°C)"),
 }
@@ -136,6 +144,26 @@ def _line_values(axis, coordinate: str) -> np.ndarray:
     return np.concatenate(values) if values else np.array([], dtype=float)
 
 
+def _localized_tick(text: str) -> str:
+    return text.replace(".", "{,}" if "$" in text else ",") if language() == "fr" else text
+
+
+class LocalizedScalarFormatter(ScalarFormatter):
+    def __call__(self, value, pos=None):
+        return _localized_tick(super().__call__(value, pos))
+
+    def format_data_short(self, value):
+        return _localized_tick(super().format_data_short(value))
+
+    def format_data(self, value):
+        return _localized_tick(super().format_data(value))
+
+
+class LocalizedFixedFormatter(FormatStrFormatter):
+    def __call__(self, value, pos=None):
+        return _localized_tick(super().__call__(value, pos))
+
+
 def _apply_tick_settings(axis, coordinate: str, role: str, settings: dict) -> None:
     axis_object = axis.xaxis if coordinate == "x" else axis.yaxis
     scale = settings["axis_scales"][role]
@@ -143,6 +171,8 @@ def _apply_tick_settings(axis, coordinate: str, role: str, settings: dict) -> No
     subdivisions = settings["minor_tick_subdivisions"][role]
     tick_format = settings["tick_formats"][role]
     decimals = settings["tick_decimals"][role]
+    if isinstance(axis_object.get_major_formatter(), ScalarFormatter):
+        axis_object.set_major_formatter(LocalizedScalarFormatter(useMathText=True))
 
     if step is not None:
         axis_object.set_major_locator(
@@ -162,9 +192,9 @@ def _apply_tick_settings(axis, coordinate: str, role: str, settings: dict) -> No
     else:
         axis_object.set_minor_locator(NullLocator())
     if tick_format == "fixed":
-        axis_object.set_major_formatter(FormatStrFormatter(f"%.{decimals}f"))
+        axis_object.set_major_formatter(LocalizedFixedFormatter(f"%.{decimals}f"))
     elif tick_format == "scientific":
-        formatter = ScalarFormatter(useMathText=True)
+        formatter = LocalizedScalarFormatter(useMathText=True)
         formatter.set_scientific(True)
         formatter.set_powerlimits((0, 0))
         axis_object.set_major_formatter(formatter)
@@ -213,24 +243,16 @@ def apply_graph_presentation(
         _apply_tick_settings(axis, "y", signal, settings)
 
     primary.grid(False, which="both", axis="both")
-    if settings["grid_major"]:
-        primary.grid(
-            True,
-            which="major",
-            axis=settings["grid_axis"],
-            color="#d9d9d9",
-            linewidth=0.7,
-            alpha=0.7,
-        )
-    if settings["grid_minor"]:
-        primary.grid(
-            True,
-            which="minor",
-            axis=settings["grid_axis"],
-            color="#e8e8e8",
-            linewidth=0.5,
-            alpha=0.6,
-        )
+    for kind, fallback, width, alpha in (("major", "#d9d9d9", 0.7, 0.7), ("minor", "#e8e8e8", 0.5, 0.6)):
+        style = settings.get("grid_styles", {}).get(kind, {})
+        if settings[f"grid_{kind}"]:
+            primary.grid(True, which=kind, axis=settings["grid_axis"],
+                         color=style.get("color") or fallback,
+                         linewidth=style.get("line_width", width),
+                         linestyle=style.get("line_style", "-"),
+                         alpha=1 if style.get("color") else alpha)
+        for axis in (primary.xaxis, primary.yaxis):
+            setattr(axis, f"_thermalcurve_grid_{kind}_color", bool(style.get("color")))
     primary.set_axisbelow(True)
 
     apply_neutral_axis_style(primary, axes.values())
@@ -293,28 +315,17 @@ def draw_graph_legend(
     labels: list[str],
     settings: dict,
     warnings: list[str] | None = None,
-) -> None:
-    if not lines or (settings and not settings["legend_visible"]):
-        return
-    position = settings.get("legend_position", "best") if settings else "best"
-    if position == "outside":
-        legend = primary.legend(
-            lines,
-            labels,
-            loc="center left",
-            bbox_to_anchor=(1.02, 0.5),
-            fontsize="small",
-        )
-    else:
-        legend = primary.legend(lines, labels, loc=position, fontsize="small")
+) -> Legend | None:
+    from .legend import replace_legend
     warning_list = warnings if warnings is not None else []
-    _apply_font(legend.get_texts(), _font_settings(settings, "legend", warning_list))
+    return replace_legend(primary, lines, labels, settings, _font_settings(settings, "legend", warning_list))
 
 
 def _font_settings(settings: dict, target: str, warnings: list[str]) -> dict[str, object]:
     fonts = settings.get("fonts", {})
     general = dict(fonts.get("general", {}))
-    general.update(fonts.get("overrides", {}).get(target, {}))
+    override = fonts.get("overrides", {}).get(target, {})
+    general.update({key: value for key, value in override.items() if target != "legend" or value not in (None, "")})
     family = general.get("family", "")
     if family:
         try:
@@ -348,13 +359,27 @@ def apply_graph_advanced_presentation(primary, axes: dict[str, object], settings
     if not settings:
         return
     spacing = settings["axis_spacing"]
+    figure = primary.figure
+    if not hasattr(figure, "_thermalcurve_auto_layout"):
+        figure._thermalcurve_auto_layout = figure.get_layout_engine()
+        figure._thermalcurve_auto_margins = {key: getattr(figure.subplotpars, key) for key in ("left", "right", "bottom", "top")}
+    margins = settings.get("layout_margins")
+    if margins is not None:
+        figure.set_layout_engine("none")
+        # Clear Matplotlib's compatibility placeholder before manual adjustment.
+        figure.set_layout_engine(None)
+        figure.subplots_adjust(**margins)
+    else:
+        figure.set_layout_engine(figure._thermalcurve_auto_layout)
+        if figure.get_layout_engine() is None or figure.get_layout_engine().adjust_compatible:
+            figure.subplots_adjust(**figure._thermalcurve_auto_margins)
     if len(axes) == 3 and "tg" in axes and "dtg" in axes:
         axes["tg"].spines["right"].set_position(("axes", spacing["tg_right_position"]))
         axes["dtg"].spines["right"].set_position(("axes", spacing["dtg_right_position"]))
         left = primary.figure.subplotpars.left
         outer_right = left + (0.88 - left) / spacing["dtg_right_position"]
         layout_engine = primary.figure.get_layout_engine()
-        if layout_engine is None or layout_engine.adjust_compatible:
+        if margins is None and (layout_engine is None or layout_engine.adjust_compatible):
             primary.figure.subplots_adjust(
                 right=min(primary.figure.subplotpars.right, outer_right)
             )
@@ -415,6 +440,7 @@ class PlotOptions:
     show_zone_surfaces: bool = True
     show_zone_baselines: bool = True
     graph_settings: dict[str, object] = field(default_factory=dict)
+    thermal_program: dict[str, object] | None = None
 
     def __post_init__(self) -> None:
         if self.x_axis not in X_LABELS:
@@ -445,8 +471,8 @@ def _numeric(series: pd.Series) -> np.ndarray:
 def x_values(result: CorrectionResult, x_axis: str) -> np.ndarray | None:
     if x_axis == "time_s":
         return _numeric(result.data["Temps_s"])
-    if x_axis == "time_min":
-        return _numeric(result.data["Temps_s"]) / 60.0
+    if x_axis in TIME_AXIS_SECONDS:
+        return _numeric(result.data["Temps_s"]) / TIME_AXIS_SECONDS[x_axis]
     role = x_axis
     column = getattr(result.experiment.mapping, role)
     if column is None or column not in result.data:
@@ -459,12 +485,14 @@ def x_values(result: CorrectionResult, x_axis: str) -> np.ndarray | None:
 def draw_heat_flow_zone(
     axis, profile: HeatFlowZoneProfile, *, offset: float = 0.0,
     show_baseline: bool = True, show_surfaces: bool = True,
+    positive_color: str = "#0072B2", negative_color: str = "#D55E00",
+    baseline_color: str = "#7A3E9D",
 ) -> None:
     """Dessine les deux côtés de la ligne de base sans changer les mesures."""
     if not profile.corrected.size:
         return
     if show_baseline:
-        axis.plot(profile.axis, profile.baseline + offset, color="#7A3E9D",
+        axis.plot(profile.axis, profile.baseline + offset, color=baseline_color,
                   linestyle="--", linewidth=1.3, alpha=0.9, label="_nolegend_")
     if not show_surfaces:
         return
@@ -481,7 +509,7 @@ def draw_heat_flow_zone(
     starts, ends = [0, *turns], [*turns, len(profile.axis) - 1]
     for start, end in zip(starts, ends):
         part = slice(start, end + 1)
-        for above, color in ((True, "#0072B2"), (False, "#D55E00")):
+        for above, color in ((True, positive_color), (False, negative_color)):
             selected = (profile.corrected[part] >= 0 if above else profile.corrected[part] < 0)
             if selected.any():
                 axis.fill_between(
@@ -601,7 +629,7 @@ class SignificantScientificFormatter(Formatter):
         scaled = value / self._factor
         if abs(scaled) < 1e-14:
             return "0"
-        return f"{scaled:.2g}"
+        return decimal_text(f"{scaled:.2g}")
 
     def get_offset(self) -> str:
         return rf"$\times10^{{{self.exponent}}}$"
@@ -642,7 +670,7 @@ def apply_scientific_tick_format(axis, coordinate: str) -> bool:
             axis_object.set_major_formatter(SignificantScientificFormatter(exponent))
             return True
     if isinstance(axis_object.get_major_formatter(), SignificantScientificFormatter):
-        axis_object.set_major_formatter(ScalarFormatter(useMathText=True))
+        axis_object.set_major_formatter(LocalizedScalarFormatter(useMathText=True))
     return False
 
 
@@ -659,10 +687,10 @@ def _apply_partial_limits(
     (axis.set_xlim if horizontal else axis.set_ylim)(low, high)
 
 
-def align_axis_zeros(axes: Iterable) -> None:
+def align_axis_zeros(axes: Iterable, limits: dict | None = None) -> None:
     """Compatibilité : aligne zéro sans imposer des limites symétriques."""
 
-    align_axis_references({axis: 0.0 for axis in axes})
+    align_axis_references({axis: 0.0 for axis in axes}, limits=limits)
 
 
 def _line_extent(axis) -> tuple[float, float] | None:
@@ -681,6 +709,8 @@ def _line_extent(axis) -> tuple[float, float] | None:
 def align_axis_references(
     references: dict[object, float],
     margin: float = 0.05,
+    limits: dict | None = None,
+    follow_limits: bool = True,
 ) -> None:
     """Aligne des niveaux physiques en conservant l'étendue utile de chaque série."""
 
@@ -700,7 +730,20 @@ def align_axis_references(
         fractions.append(fraction)
     if len(usable) < 2:
         return
-    target = min(0.95, max(0.05, float(np.median(fractions))))
+    # Minimise la pire dilatation d'axe, y compris pour des signaux de signes opposés.
+    target = max(fractions) / (max(fractions) + 1.0 - min(fractions))
+    limits = limits or {}
+    anchors = []
+    for axis, reference, *_ in usable:
+        low, high = limits.get(axis, (None, None))
+        if (low is not None and low >= reference) or (high is not None and high <= reference):
+            raise ValueError(_t('Les bornes doivent encadrer strictement le niveau aligné.'))
+        if low is not None and high is not None:
+            anchors.append((reference - low) / (high - low))
+    if anchors:
+        if max(anchors) - min(anchors) > 1e-8:
+            raise ValueError(_t('Ces bornes imposent des positions de zéro différentes. Régler un seul axe à la fois ou désactiver l’alignement.'))
+        target = anchors[0]
     for axis, reference, low, high, _ in usable:
         below = max(reference - low, 0.0)
         above = max(high - reference, 0.0)
@@ -709,7 +752,21 @@ def align_axis_references(
             above / (1.0 - target) if above else 0.0,
             1e-12,
         )
-        axis.set_ylim(reference - target * span, reference + (1.0 - target) * span)
+        fixed_low, fixed_high = limits.get(axis, (None, None))
+        if fixed_low is not None:
+            span = (reference - fixed_low) / target
+        elif fixed_high is not None:
+            span = (fixed_high - reference) / (1.0 - target)
+        axis.set_ylim(reference - target * span, reference + (1.0 - target) * span, emit=False)
+
+    if follow_limits:
+        def keep_references_aligned(changed):
+            low, high = changed.get_ylim()
+            if low < references[changed] < high and all(a.get_yscale() == "linear" for a in references):
+                align_axis_references(references, margin, {changed: (low, high)}, follow_limits=False)
+
+        for axis, *_ in usable:
+            axis.callbacks.connect("ylim_changed", keep_references_aligned)
 
 
 def _reference_level(
@@ -744,6 +801,117 @@ def _reference_level(
     return value
 
 
+def apply_axis_appearance(primary, axes, thermal_axis, settings, warnings):
+    """Decorate independent axes after all scientific curves and limits exist."""
+    appearances = settings.get("axis_appearance")
+    if not appearances:
+        return
+    top = primary.secondary_xaxis("top")
+    # This is a second ruler for the same abscissa, never a transformed series.
+    top.xaxis.set_major_locator(copy(primary.xaxis.get_major_locator()))
+    top.xaxis.set_minor_locator(copy(primary.xaxis.get_minor_locator()))
+    top.xaxis.set_major_formatter(copy(primary.xaxis.get_major_formatter()))
+    top.set_xlabel(primary.get_xlabel())
+    primary._thermalcurve_top_axis = top
+    targets = {"x": (primary, "x", "bottom"), "x_top": (top, "x", "top")}
+    targets.update({role: (axis, "y", "left" if axis is primary else "right") for role, axis in axes.items()})
+    if thermal_axis is not None:
+        targets["thermal_program"] = (thermal_axis, "y", "right")
+    moved_side = any(appearances[role]['position'] not in ('auto', side)
+                     for role, (_, coordinate, side) in targets.items() if coordinate == 'y')
+    for axis in primary.figure.axes:
+        # Each physical spine is drawn by its owner, with no twin overpainting it.
+        for spine in axis.spines.values():
+            spine.set_visible(False)
+    side_count = {"left": 0, "right": 0}
+    for role, (axis, coordinate, default_side) in targets.items():
+        style = appearances[role]
+        side = default_side if style["position"] == "auto" else style["position"]
+        spine = axis.spines[side]
+        if coordinate == "y":
+            if moved_side:
+                spine.set_position(("outward", 52 * side_count[side]))
+            side_count[side] += 1
+            axis.yaxis.set_label_position(side)
+        spine.set_visible(style["visible"] and style["line_visible"])
+        spine.set_linewidth(style["width"])
+        spine.set_edgecolor(style["color"] or NEUTRAL_AXIS_COLOR)
+        spine._thermalcurve_custom_color = style["color"] is not None
+        axis_object = axis.xaxis if coordinate == "x" else axis.yaxis
+        axis_object.label.set_visible(style["visible"] and style["labels_visible"])
+        axis_object.get_offset_text().set_visible(style["visible"] and style["labels_visible"])
+        sides = ("bottom", "top") if coordinate == "x" else ("left", "right")
+        for kind in ("major", "minor"):
+            tick = style[kind]
+            kwargs = {name: style["visible"] and tick["visible"] and name == side for name in sides}
+            kwargs.update({f"label{name}": style["visible"] and style["labels_visible"] and name == side for name in sides})
+            kwargs.update({key: tick[key] for key in ("length", "width") if tick[key] is not None})
+            axis.tick_params(axis=coordinate, which=kind, direction=tick["direction"],
+                             color=tick["color"] or style["color"] or NEUTRAL_AXIS_COLOR, **kwargs)
+            setattr(axis_object, f"_thermalcurve_tick_{kind}_color", bool(tick["color"] or style["color"]))
+        if style["arrow"] != "none" and spine.get_visible():
+            transform = blended_transform_factory(axis.transAxes, spine.get_transform()) if coordinate == "x" else blended_transform_factory(spine.get_transform(), axis.transAxes)
+            ends = (0, 1) if style["arrow"] == "both" else (1,)
+            for end in ends:
+                if coordinate == "x":
+                    xy = (end, 0 if side == "bottom" else 1)
+                    marker = ">" if end else "<"
+                else:
+                    xy = (0 if side == "left" else 1, end)
+                    marker = "^" if end else "v"
+                arrow, = axis.plot(*xy, marker=marker, color=style["color"] or NEUTRAL_AXIS_COLOR,
+                                   markersize=5 + style["width"], transform=transform, clip_on=False,
+                                   scalex=False, scaley=False, label="_nolegend_")
+                arrow._thermalcurve_custom_color = bool(style["color"])
+                arrow._thermalcurve_axis_arrow = True
+    _apply_font([top.xaxis.label], _font_settings(settings, "axes", warnings))
+    _apply_font(top.get_xticklabels(), _font_settings(settings, "ticks", warnings))
+    top.tick_params(axis="x", labelrotation=settings["x_tick_rotation"])
+
+
+def draw_thermal_program(primary, axes, options, warnings, lines, labels):
+    """Trace la consigne sur un axe droit, commun aux vues simples et superposées."""
+    thermal_axis = None
+    program = options.thermal_program
+    if program is not None and program.get("enabled"):
+        if options.x_axis not in {"time_s", "time_min", "time_h"}:
+            warnings.append(_t('Le programme thermique est masqué : sélectionner un axe temporel.'))
+        else:
+            times, temperatures = thermal_program_points(program)
+            x = np.asarray(times) * 60 / TIME_AXIS_SECONDS[options.x_axis]
+            y = np.asarray(temperatures) + (273.15 if program["temperature_unit"] == "K" else 0)
+            thermal_axis = primary.twinx()
+            thermal_axis.yaxis.set_major_formatter(LocalizedScalarFormatter(useMathText=True))
+            right_positions = [
+                axis.spines["right"].get_position()[1]
+                if axis.spines["right"].get_position()[0] == "axes" else 1.0
+                for axis in axes.values() if axis is not primary
+            ]
+            spacing = options.graph_settings.get("axis_spacing", {})
+            if spacing.get("tg_right_position", 1.0) == 1.0 and spacing.get("dtg_right_position", 1.12) == 1.12:
+                right_axes = [axis for axis in axes.values() if axis is not primary]
+                for index, axis in enumerate([*right_axes, thermal_axis]):
+                    axis.spines["right"].set_position(("outward", 52 * index))
+            else:
+                position = max(right_positions) + 0.08 if right_positions else 1.0
+                thermal_axis.spines["right"].set_position(("axes", position))
+            thermal_axis.patch.set_visible(False)
+            label = _t('Température programmée')
+            line, = thermal_axis.plot(x, y, color="#8C564B", linestyle="--", label=label)
+            line.set_gid("thermal-program")
+            thermal_axis.set_ylabel(f"{label} ({program['temperature_unit']})")
+            apply_neutral_axis_style(primary, [thermal_axis])
+            # Les limites manuelles restent prioritaires ; le domaine auto inclut la consigne.
+            left, right = primary.get_xlim()
+            primary.set_xlim(
+                min(left, float(x.min())) if options.x_limits[0] is None else options.x_limits[0],
+                max(right, float(x.max())) if options.x_limits[1] is None else options.x_limits[1],
+            )
+            lines.append(line)
+            labels.append(label)
+    return thermal_axis
+
+
 class CorrectionPlot:
     """Figure réutilisable par l'interface Tk et les tests hors écran."""
 
@@ -753,11 +921,13 @@ class CorrectionPlot:
         self.primary_axis: object | None = None
         self.hidden_zone_count = 0
         self.warnings: list[str] = []
+        self.thermal_axis = None
 
     def draw(self, results: Iterable[CorrectionResult], options: PlotOptions) -> None:
         results = list(results)
         self.figure.clear()
         self.warnings = []
+        self.thermal_axis = None
         primary, self.axes = create_signal_axes(self.figure, options.signals)
         self.primary_axis = primary
         self.hidden_zone_count = sum(
@@ -817,7 +987,7 @@ class CorrectionPlot:
                             x[segment_slice][finite],
                             y[segment_slice][finite],
                             color=color,
-                            linestyle=line_style,
+                            linestyle=mpl_line_style(line_style),
                             linewidth=line_width,
                             marker=marker,
                             markevery=markevery,
@@ -843,7 +1013,7 @@ class CorrectionPlot:
                     linestyle=(
                         "None"
                         if options.x_axis in {"furnace_temperature", "sample_temperature"}
-                        else line_style
+                        else mpl_line_style(line_style)
                     ),
                     marker=(
                         marker or "."
@@ -853,7 +1023,7 @@ class CorrectionPlot:
                     markevery=markevery,
                     markersize=2.5,
                     linewidth=line_width,
-                    label=f"{result.experiment.name} — {_label_for_signal(result, options, signal)}",
+                    label=f"{result.experiment.name} - {_label_for_signal(result, options, signal)}",
                 )[0]
                 lines.append(line)
                 labels.append(line.get_label())
@@ -920,7 +1090,11 @@ class CorrectionPlot:
                 else:
                     continue
                 aligned[axis] = level
-            align_axis_references(aligned, options.alignment_margin)
+            align_axis_references(aligned, options.alignment_margin, {
+                axis: options.y_limits.get(signal, (None, None))
+                for signal, axis in self.axes.items() if axis in aligned
+            })
+
         apply_scientific_tick_format(primary, "x")
         for axis in self.axes.values():
             apply_scientific_tick_format(axis, "y")
@@ -941,20 +1115,20 @@ class CorrectionPlot:
             if zone.axis_type == options.x_axis
         )
         for index, zone in enumerate(visible_zones):
-            color = zone_colors[index % len(zone_colors)]
+            color = zone.color or zone_colors[index % len(zone_colors)]
             active = zone.identifier == options.selected_analysis_zone_id
             primary.axvspan(
                 zone.start,
                 zone.end,
                 color=color,
-                alpha=0.22 if active else 0.10,
+                alpha=zone.opacity if zone.opacity is not None else 0.22 if active else 0.10,
                 linewidth=0,
                 label="_nolegend_",
             )
             primary.axvline(
                 zone.start,
                 color=color,
-                linewidth=2.2 if active else 1.0,
+                linewidth=zone.line_width if zone.line_width is not None else 2.2 if active else 1.0,
                 linestyle="-" if active else ":",
                 alpha=1.0 if active else 0.75,
                 label="_nolegend_",
@@ -962,7 +1136,7 @@ class CorrectionPlot:
             primary.axvline(
                 zone.end,
                 color=color,
-                linewidth=2.2 if active else 1.0,
+                linewidth=zone.line_width if zone.line_width is not None else 2.2 if active else 1.0,
                 linestyle="-" if active else ":",
                 alpha=1.0 if active else 0.75,
                 label="_nolegend_",
@@ -980,7 +1154,10 @@ class CorrectionPlot:
                     )
                     draw_heat_flow_zone(
                         heat_axis, profile,
-                        show_baseline=options.show_zone_baselines,
+                        show_baseline=zone.show_baseline and options.show_zone_baselines,
+                        positive_color=zone.positive_area_color or "#0072B2",
+                        negative_color=zone.negative_area_color or "#D55E00",
+                        baseline_color=zone.baseline_color or "#7A3E9D",
                         show_surfaces=options.show_zone_surfaces,
                     )
         primary.set_xlim(displayed_limits)
@@ -993,6 +1170,10 @@ class CorrectionPlot:
         draw_graph_reference_lines(
             primary, self.axes, options.graph_settings, self.warnings
         )
+        self.thermal_axis = draw_thermal_program(
+            primary, self.axes, options, self.warnings, lines, labels
+        )
+        apply_axis_appearance(primary, self.axes, self.thermal_axis, options.graph_settings, self.warnings)
         draw_graph_legend(
             primary, lines, labels, options.graph_settings, self.warnings
         )

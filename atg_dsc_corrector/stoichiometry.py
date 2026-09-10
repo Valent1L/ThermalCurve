@@ -4,10 +4,12 @@ from dataclasses import dataclass, replace
 from decimal import Decimal, DecimalException
 from fractions import Fraction
 from math import gcd, lcm
+import re
 from types import MappingProxyType
 from typing import Final, Mapping
 
 from .atomic_data import SOURCE_ID, AtomicDataError, atomic_weight, element_by_symbol
+from .models import TIME_UNIT_SECONDS
 
 
 MAX_INPUT_LENGTH: Final = 1_000
@@ -88,6 +90,20 @@ class GasByFraction:
     value: object
     kind: str
     conditions: IdealGasConditions
+
+
+@dataclass(frozen=True)
+class GasByFlow:
+    flow: object
+    flow_unit: str
+    duration: object
+    duration_unit: str
+    pressure: object
+    pressure_unit: str
+    temperature: object
+    temperature_unit: str
+    fraction: object
+    fraction_kind: str
 
 
 @dataclass(frozen=True)
@@ -334,7 +350,22 @@ def _parse_species(text: str, source: str, offset: int) -> ChemicalSpecies:
     if not formula:
         raise _error("Une formule chimique est attendue.", source, formula_offset)
 
-    composition = _FormulaParser(formula, source, formula_offset).parse()
+    composition = {}
+    fragment_offset = 0
+    for index, fragment in enumerate(re.split(r"[.·]", formula)):
+        multiplier = 1
+        count_length = 0
+        if index:
+            while count_length < len(fragment) and _is_ascii_digit(fragment[count_length]):
+                count_length += 1
+            if count_length:
+                multiplier = _bounded_positive_integer(fragment[:count_length], source,
+                    formula_offset + fragment_offset, "Le multiplicateur d'adduit")
+        part = _FormulaParser(fragment[count_length:], source,
+                              formula_offset + fragment_offset + count_length).parse()
+        for symbol, count in part.items():
+            composition[symbol] = composition.get(symbol, 0) + multiplier * count
+        fragment_offset += len(fragment) + 1
     molar_mass = sum(
         (atomic_weight(symbol) * count for symbol, count in composition.items()),
         Decimal(0),
@@ -687,6 +718,29 @@ def _gas_initial_state(
     if isinstance(value, MassValue):
         mass = _mass_in_grams(value, label)
         return mass, mass / species.molar_mass, "mass"
+    if isinstance(value, GasByFlow):
+        try:
+            volume_unit, period = value.flow_unit.split("/")
+        except (ValueError, AttributeError) as exc:
+            raise MassBalanceError("Unité de débit invalide : mL ou L par s, min ou h attendus.") from exc
+        if volume_unit not in VOLUME_UNIT_TO_CUBIC_METRES or period not in TIME_UNIT_SECONDS:
+            raise MassBalanceError("Unité de débit invalide : mL ou L par s, min ou h attendus.")
+        flow = _converted_positive_value(value.flow, volume_unit, VOLUME_UNIT_TO_CUBIC_METRES,
+                                         "le débit", "mL ou L")
+        duration = _converted_positive_value(value.duration, value.duration_unit,
+            {key: Decimal(factor) for key, factor in TIME_UNIT_SECONDS.items()}, "la durée", "s, min ou h")
+        fraction = _finite_decimal(value.fraction, "la fraction gazeuse")
+        maximum = {"percent": Decimal(100), "molar_ppm": Decimal(1_000_000), "ppmv": Decimal(1_000_000)}.get(value.fraction_kind)
+        if maximum is None or not 0 < fraction <= maximum:
+            raise MassBalanceError("Fraction gazeuse invalide : 0 < % ≤ 100 ou 0 < ppm molaire/ppmv ≤ 1 000 000.")
+        try:
+            volume_l = flow * duration / Decimal(TIME_UNIT_SECONDS[period]) * 1000
+        except DecimalException as exc:
+            raise MassBalanceError("Conditions gazeuses hors limites.") from exc
+        amount = _ideal_gas_amount(IdealGasConditions(value.pressure, value.pressure_unit,
+            volume_l, "L", value.temperature, value.temperature_unit),
+            pressure_fraction=fraction / maximum, pressure_label="la pression totale de référence du débit")
+        return _gas_mass_from_amount(amount, species), amount, "flow"
     if isinstance(value, GasByPartialPressure):
         amount = _ideal_gas_amount(
             value.conditions, pressure_label="la pression partielle"
@@ -954,6 +1008,7 @@ def calculate_condensed_mass_balance(
     )
     assumptions = (
         "Réaction théorique complète jusqu'au réactif limitant.",
+        "La cinétique, la diffusion, les transferts de matière et de chaleur et l'équilibre chimique ne sont pas modélisés.",
         "Phases (s) et (l) retenues ; produits (g) entièrement dégagés.",
         "Delta m = masse finale condensée - masse initiale condensée.",
     )
@@ -977,6 +1032,11 @@ def calculate_condensed_mass_balance(
     if "excess" in gas_modes:
         assumptions += (
             "Un gaz déclaré en excès ne limite pas l'avancement.",
+        )
+    if "flow" in gas_modes:
+        assumptions += (
+            "Gaz parfait : débit volumique total et composition constants pendant la durée saisie, aux pression absolue et température de référence du débit.",
+            "Le débit × la durée décrit le gaz apporté, pas la quantité effectivement réagie ; le bilan est un maximum théorique.",
         )
     return CondensedMassBalance(
         equation=equation,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .models import TIME_AXIS_SECONDS, TIME_UNIT_SECONDS
+
 from dataclasses import dataclass
 import math
 import re
@@ -16,7 +18,7 @@ from .models import CorrectionResult, ExperimentData, temperature_axis_error
 
 
 REFERENCE_MODES = {"first_valid", "range_mean"}
-REFERENCE_AXES = {"time_s", "furnace_temperature", "sample_temperature"}
+REFERENCE_AXES = {"time_s", "time_min", "time_h", "furnace_temperature", "sample_temperature"}
 TG_REPRESENTATIONS = {
     "raw": ("TG_corrigee", "TG originale", None),
     "delta_m_mg": ("Delta_m_mg", "Variation de masse", "mg"),
@@ -36,21 +38,21 @@ TG_REPRESENTATIONS = {
 }
 HEAT_FLOW_REPRESENTATIONS = {
     "raw": ("HeatFlow_corrige", "Flux de chaleur original", None),
-    "zero_mw": ("HeatFlow_zero_mW", "Flux de chaleur remis à zéro", "mW"),
+    "zero_mw": ("HeatFlow_zero_mW", "Flux de chaleur relatif à la référence", "mW"),
     "w": ("HeatFlow_W", "Flux de chaleur", "W"),
-    "zero_w": ("HeatFlow_zero_W", "Flux de chaleur remis à zéro", "W"),
+    "zero_w": ("HeatFlow_zero_W", "Flux de chaleur relatif à la référence", "W"),
     "mw_mg": ("HeatFlow_mW_mg", "Flux de chaleur", "mW/mg"),
     "zero_mw_mg": (
         "HeatFlow_zero_mW_mg",
-        "Flux de chaleur remis à zéro",
+        "Flux de chaleur relatif à la référence",
         "mW/mg",
     ),
     "w_g": ("HeatFlow_W_g", "Flux de chaleur massique", "W/g"),
-    "zero_w_g": ("HeatFlow_zero_W_g", "Flux de chaleur massique remis à zéro", "W/g"),
+    "zero_w_g": ("HeatFlow_zero_W_g", "Flux de chaleur massique relatif à la référence", "W/g"),
     "w_mg": ("HeatFlow_W_mg", "Flux de chaleur", "W/mg"),
     "zero_w_mg": (
         "HeatFlow_zero_W_mg",
-        "Flux de chaleur remis à zéro",
+        "Flux de chaleur relatif à la référence",
         "W/mg",
     ),
 }
@@ -85,6 +87,12 @@ class NormalizationError(ValueError):
     """Paramètre ou référence de normalisation inexploitable."""
 
 
+def validate_dtg_smoothing_points(value: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1 or value % 2 == 0:
+        raise NormalizationError("La fenêtre de lissage dTG doit être un nombre impair de points, au moins 1.")
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class NormalizationSettings:
     reference_mode: str = "first_valid"
@@ -100,9 +108,11 @@ class NormalizationSettings:
     reference_name: str = ""
     use_initial_mass_as_reference: bool = False
     calculate_dtg_if_missing: bool = False
+    dtg_smoothing_points: int = 1
     allow_missing_initial_mass: bool = False
 
     def __post_init__(self) -> None:
+        validate_dtg_smoothing_points(self.dtg_smoothing_points)
         if self.reference_mode not in REFERENCE_MODES:
             raise NormalizationError("Mode de référence inconnu.")
         if self.reference_axis not in REFERENCE_AXES:
@@ -111,7 +121,7 @@ class NormalizationSettings:
             raise NormalizationError("Représentation TG inconnue.")
         if self.heat_flow_representation not in HEAT_FLOW_REPRESENTATIONS:
             raise NormalizationError("Représentation Flux de chaleur inconnue.")
-        if self.dtg_unit_mode not in {"source", "per_second", "per_minute"}:
+        if self.dtg_unit_mode not in {"source", "per_second", "per_minute", "per_hour"}:
             raise NormalizationError("Unité dTG demandée inconnue.")
         if self.dtg_representation not in {"raw", "per_mass", "percent"}:
             raise NormalizationError("Représentation dTG inconnue.")
@@ -260,8 +270,8 @@ def _axis_values(result: CorrectionResult, axis: str) -> np.ndarray:
     if axis in {"furnace_temperature", "sample_temperature"}:
         if error := temperature_axis_error(result.experiment, axis):
             raise NormalizationError(error)
-    if axis == "time_s":
-        column = "Temps_s"
+    if axis in TIME_AXIS_SECONDS:
+        return pd.to_numeric(result.data["Temps_s"], errors="coerce").to_numpy(dtype=float) / TIME_AXIS_SECONDS[axis]
     else:
         column = getattr(result.experiment.mapping, axis)
     if column is None or column not in result.data:
@@ -341,6 +351,8 @@ def _dtg_unit_parts(unit: str) -> tuple[str, str] | None:
         return numerator, "min"
     if re.search(r"(?:/|per)(?:s|sec|seconde)|s(?:-1|\^-?1)", compact):
         return numerator, "s"
+    if re.search(r"(?:/|per)(?:h|hr|hour|heure)|h(?:-1|\^-?1)", compact):
+        return numerator, "h"
     return None
 
 
@@ -351,9 +363,10 @@ def _convert_dtg_time_basis(
 ) -> pd.Series:
     if source_period == target_period:
         return values.copy()
-    if source_period == "min" and target_period == "s":
-        return values / 60.0
-    return values * 60.0
+    source_seconds, target_seconds = TIME_UNIT_SECONDS[source_period], TIME_UNIT_SECONDS[target_period]
+    if source_seconds > target_seconds:
+        return values / (source_seconds / target_seconds)
+    return values * (target_seconds / source_seconds)
 
 
 def _initial_mass_required(settings: NormalizationSettings) -> bool:
@@ -364,9 +377,10 @@ def _initial_mass_required(settings: NormalizationSettings) -> bool:
     )
 
 
-def calculate_dtg_mg_per_minute(result: CorrectionResult) -> pd.Series:
+def calculate_dtg_mg_per_minute(result: CorrectionResult, *, smoothing_points: int = 1) -> pd.Series:
     """Calcule une dTG sur ``Temps_s`` sans modifier le résultat fourni."""
 
+    validate_dtg_smoothing_points(smoothing_points)
     tg_column = _working_column(result, "tg")
     if tg_column is None:
         raise NormalizationError(
@@ -397,11 +411,16 @@ def calculate_dtg_mg_per_minute(result: CorrectionResult) -> pd.Series:
             "Le calcul de dTG exige un temps strictement croissant."
         )
     derivative_per_second = np.gradient(tg_values, time_values)
-    return pd.Series(
+    derivative = pd.Series(
         derivative_per_second * 60.0,
         index=result.data.index,
         dtype=float,
     )
+    if smoothing_points > len(derivative):
+        raise NormalizationError("La fenêtre de lissage dTG dépasse le nombre de points disponibles.")
+    if smoothing_points > 1:
+        derivative = derivative.rolling(smoothing_points, center=True, min_periods=1).mean()
+    return derivative
 
 
 def _signal_reference(
@@ -611,27 +630,28 @@ def apply_normalization(
     dtg_calculated = dtg_column is None and settings.calculate_dtg_if_missing
     if dtg_column is not None or dtg_calculated:
         if dtg_calculated:
-            dtg_source = calculate_dtg_mg_per_minute(result)
+            dtg_source = calculate_dtg_mg_per_minute(result, smoothing_points=settings.dtg_smoothing_points)
             unit_parts = ("mg", "min")
         else:
             dtg_source = pd.to_numeric(data[dtg_column], errors="coerce")
             unit_parts = _dtg_unit_parts(result.experiment.unit_for("dtg"))
         if unit_parts is None:
             raise NormalizationError(
-                "L'unité dTG source doit préciser mg/s, mg/min, %/s ou %/min."
+                "L'unité dTG source doit préciser mg/s, mg/min, mg/h, %/s, %/min ou %/h."
             )
         numerator, source_period = unit_parts
         target_period = {
             "source": source_period,
             "per_second": "s",
             "per_minute": "min",
+            "per_hour": "h",
         }[settings.dtg_unit_mode]
         dtg = _convert_dtg_time_basis(
             dtg_source,
             source_period,
             target_period,
         )
-        period_name = "s" if target_period == "s" else "min"
+        period_name = target_period
         if dtg_calculated:
             conversion_formula = "60 * gradient(TG_corrigee, Temps_s)"
             if target_period == "s":
@@ -648,6 +668,14 @@ def apply_normalization(
                     else "dTG_source * 60"
                 )
             )
+        if target_period == "h" or source_period == "h":
+            source_seconds, target_seconds = TIME_UNIT_SECONDS[source_period], TIME_UNIT_SECONDS[target_period]
+            factor = max(source_seconds, target_seconds) / min(source_seconds, target_seconds)
+            operation = "*" if target_seconds > source_seconds else "/"
+            base = "60 * gradient(TG_corrigee, Temps_s)" if dtg_calculated else "dTG_source"
+            conversion_formula = base if factor == 1 else f"({base}) {operation} {factor:g}"
+        if dtg_calculated and settings.dtg_smoothing_points > 1:
+            conversion_formula = f"rolling_mean({conversion_formula}, window={settings.dtg_smoothing_points}, center=True, min_periods=1)"
         if settings.dtg_representation == "raw":
             column = f"dTG_{'mg' if numerator == 'mg' else 'pct'}_{period_name}"
             data[column] = dtg
@@ -806,6 +834,8 @@ def apply_normalization(
         "reference_name": settings.reference_name.strip(),
         "use_initial_mass_as_reference": settings.use_initial_mass_as_reference,
         "calculate_dtg_if_missing": settings.calculate_dtg_if_missing,
+        "dtg_smoothing_points": settings.dtg_smoothing_points,
+        "dtg_smoothing_applied": dtg_calculated and settings.dtg_smoothing_points > 1,
         "dtg_calculated": dtg_calculated,
         "manual_mass_mg": manual_mass_mg,
         "references": references.as_dict(),

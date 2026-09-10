@@ -1,4 +1,4 @@
-ThermalCurve 1.0.0 - Composants tiers / Third-party components
+ThermalCurve 1.0.1 - Composants tiers / Third-party components
 
 FR
 La licence PolyForm Noncommercial s'applique au code original de ThermalCurve.
@@ -26,6 +26,7 @@ NumPy: BSD-3-Clause and bundled numerical library notices.
 pandas: BSD-3-Clause.
   https://pandas.pydata.org/docs/getting_started/overview.html#license
 openpyxl: MIT. https://openpyxl.readthedocs.io/
+XlsxWriter: BSD-2-Clause. https://xlsxwriter.readthedocs.io/
 xlrd: BSD. https://xlrd.readthedocs.io/
 Mendeleev data snapshot v0.20.0: MIT, copyright Lukasz Mentel.
   See licenses/Mendeleev/LICENSE and licenses/Mendeleev/PROVENANCE.md.

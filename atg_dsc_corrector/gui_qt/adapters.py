@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from atg_dsc_corrector.i18n import tr as _t
+from atg_dsc_corrector.curve_styles import LINE_STYLES, MARKERS, mean_curve_style
 
 from copy import deepcopy
 from dataclasses import dataclass, replace
@@ -16,6 +17,7 @@ from atg_dsc_corrector.correction import (
     uncorrected_experiment,
 )
 from atg_dsc_corrector.comparison import (
+    COMPARISON_COLORS,
     ComparisonCurve,
     ComparisonOptions,
 )
@@ -28,6 +30,7 @@ from atg_dsc_corrector.analysis_zones import AnalysisZone
 from atg_dsc_corrector.exporters import ExportedFiles, _same_path, export_result
 from atg_dsc_corrector.models import CorrectionResult, ExperimentData
 from atg_dsc_corrector.plotting import PlotOptions
+from atg_dsc_corrector.thermal_program import default_thermal_program, validate_thermal_program
 from atg_dsc_corrector.normalization import (
     NormalizationError,
     NormalizationReferences,
@@ -78,11 +81,11 @@ class ScientificWorkflow:
 
         supported_display = {
             "time_s",
-            "time_min",
+            "time_min", "time_h",
             "furnace_temperature",
             "sample_temperature",
         }
-        supported_interpolation = supported_display - {"time_min"}
+        supported_interpolation = supported_display - {"time_min", "time_h"}
         if display_axis is not None:
             if display_axis not in supported_display:
                 raise ValueError("Axe d'affichage inconnu.")
@@ -249,6 +252,7 @@ class ProjectWorkflow(ScientificWorkflow):
         graph: dict[str, object],
         limits: dict[str, list[float | None]],
         alignment_mode: str,
+        thermal_program: dict | None = None,
     ) -> None:
         candidate = deepcopy(self.project_document.display)
         candidate["graph"] = deepcopy(graph)
@@ -256,9 +260,24 @@ class ProjectWorkflow(ScientificWorkflow):
         candidate["alignment_mode"] = alignment_mode
         candidate["align_zeros"] = alignment_mode == "zeros"
         checked = _validate_display(candidate)
+        program = None if thermal_program is None else validate_thermal_program(thermal_program)
+        if program is not None and self.experiment is None:
+            raise ValueError(_t('Aucune expérience active.'))
         if checked != self.project_document.display:
             self.project_document.display = checked
             self.mark_dirty()
+        if program is not None and program != self.active_thermal_program():
+            index = next(i for i, experiment in enumerate(self.experiments) if experiment is self.experiment)
+            self.comparison_record(index)["thermal_program"] = program
+            self.mark_dirty()
+
+    def active_thermal_program(self) -> dict:
+        if self.experiment is None:
+            return default_thermal_program()
+        record = self.project_document.comparison["entries"].get(
+            self.comparison_key(self.experiment), {}
+        )
+        return deepcopy(record.get("thermal_program", default_thermal_program()))
 
     def open_experiment(self, path: str | Path) -> ExperimentData:
         experiment = super().open_experiment(path)
@@ -573,6 +592,7 @@ class ProjectWorkflow(ScientificWorkflow):
                 False,
             ),
             allow_missing_initial_mass=True,
+            dtg_smoothing_points=normalization.get("dtg_smoothing_points", 1),
         )
 
     def _normalization_is_active(
@@ -620,6 +640,7 @@ class ProjectWorkflow(ScientificWorkflow):
             "reference_name": settings.reference_name.strip(),
             "use_initial_mass_as_reference": settings.use_initial_mass_as_reference,
             "calculate_dtg_if_missing": settings.calculate_dtg_if_missing,
+            "dtg_smoothing_points": settings.dtg_smoothing_points,
         }
         active = self._normalization_is_active(updated)
         candidate_result = self.base_result
@@ -632,6 +653,8 @@ class ProjectWorkflow(ScientificWorkflow):
             )
 
         changed = any(normalization.get(key) != value for key, value in updated.items())
+        if self.experiment is not None:
+            changed = changed or self._normalization_records.get(id(self.experiment), {}).get('manual_mass_mg') != manual_mass_mg
         normalization.update(updated)
         if self.experiment is not None:
             override = self._normalization_overrides.setdefault(
@@ -732,12 +755,58 @@ class ProjectWorkflow(ScientificWorkflow):
         experiment = self.experiments[row]
         return self._comparison_blanks.get(id(experiment), self.blank)
 
+    def comparison_available_signals(self, row: int) -> tuple[str, ...]:
+        experiment = self.experiments[row]
+        signals = {signal for signal in ("tg", "dtg", "heat_flow")
+                   if getattr(experiment.mapping, signal) in experiment.data.columns}
+        normalization = self._normalization_overrides.get(id(experiment), self.project_document.normalization)
+        if normalization.get("calculate_dtg_if_missing", False) and "tg" in signals and "Temps_s" in experiment.data:
+            signals.add("dtg")
+        return tuple(signal for signal in ("tg", "dtg", "heat_flow") if signal in signals)
+
+    def comparison_signal_settings(self, row: int, signal: str) -> dict[str, object]:
+        record = self.comparison_record(row)
+        key = self.comparison_key(self.experiments[row])
+        return {
+            **{name: record[name] for name in ("legend_name", "line_style", "line_width", "marker", "markevery", "y_offset")},
+            "visible": True,
+            "color": self.project_document.comparison["colors"].get(key, COMPARISON_COLORS[row % len(COMPARISON_COLORS)]),
+            **record.get("signal_settings", {}).get(signal, {}),
+        }
+
+    def set_comparison_signal_settings(self, row: int, signal: str, changes: dict[str, object]) -> None:
+        candidate = deepcopy(self.project_document.comparison)
+        key = self.comparison_key(self.experiments[row])
+        candidate["entries"][key].setdefault("signal_settings", {}).setdefault(signal, {}).update(changes)
+        checked = _validate_comparison(candidate)
+        if checked != self.project_document.comparison:
+            self.project_document.comparison = checked
+            self.mark_dirty()
+
+    def mean_curve_settings(self, signal: str) -> dict[str, object]:
+        return mean_curve_style(signal, self.project_document.comparison.get('mean_styles', {}))
+
+    def set_mean_curve_settings(self, signals: Iterable[str], changes: dict[str, object]) -> None:
+        candidate = deepcopy(self.project_document.comparison)
+        for signal in signals:
+            style = candidate.setdefault('mean_styles', {}).setdefault(signal, {})
+            style.update(changes)
+            if style.get('legend_name') == '':
+                style.pop('legend_name')
+        checked = _validate_comparison(candidate)
+        if checked != self.project_document.comparison:
+            self.project_document.comparison = checked
+            self.mark_dirty()
+
     def set_comparison_value(self, row: int, name: str, value: object) -> None:
         if name not in {"visible", "legend_name", "stage"}:
             raise ValueError("Paramètre de comparaison inconnu.")
         if name == "stage" and value not in {"original", "corrected", "normalized"}:
             raise ValueError("Représentation de comparaison inconnue.")
         record = self.comparison_record(row)
+        if name == "visible" and not record.get("selected", True):
+            record["selected"] = True
+            self.mark_dirty()
         if record.get(name) != value:
             record[name] = value
             self.mark_dirty()
@@ -754,9 +823,9 @@ class ProjectWorkflow(ScientificWorkflow):
     ) -> None:
         """Met à jour uniquement la présentation des expériences sélectionnées."""
 
-        if line_style not in {"-", "--", "-.", ":"}:
+        if line_style not in LINE_STYLES:
             raise ValueError("Style de ligne de comparaison inconnu.")
-        if marker not in {"", "o", "s", "^", "x"}:
+        if marker not in MARKERS:
             raise ValueError("Marqueur de comparaison inconnu.")
         if not math.isfinite(line_width) or not 0.1 <= line_width <= 10.0:
             raise ValueError(
@@ -807,10 +876,14 @@ class ProjectWorkflow(ScientificWorkflow):
             settings["y_limits"] = list(settings["limits"][selected[0]])
             self.mark_dirty()
 
-    def set_comparison_offsets(self, offsets: dict[str, float]) -> None:
+    def set_comparison_offsets(self, offsets: dict[str, float], *, signal: str | None = None, spacing: float | None = None) -> None:
         """Persiste des décalages calculés par le moteur de comparaison."""
 
-        changed = False
+        candidate = deepcopy(self.project_document.comparison)
+        if signal is not None:
+            candidate['stacking'] = {'signal': signal, 'spacing': spacing}
+        else:
+            candidate['stacking']['spacing'] = None
         for row, experiment in enumerate(self.experiments):
             identifier = self.comparison_key(experiment)
             if identifier not in offsets:
@@ -818,11 +891,17 @@ class ProjectWorkflow(ScientificWorkflow):
             value = float(offsets[identifier])
             if not math.isfinite(value):
                 raise ValueError("Le décalage vertical doit être fini.")
-            record = self.comparison_record(row)
-            if record.get("y_offset") != value:
-                record["y_offset"] = value
-                changed = True
-        if changed:
+            record = self._ensure_comparison_entry_in(candidate, experiment, row)
+            if signal is not None:
+                record.setdefault('signal_settings', {}).setdefault(signal, {})['y_offset'] = value
+                continue
+            for settings in record.get("signal_settings", {}).values():
+                if "y_offset" in settings:
+                    del settings["y_offset"]
+            record["y_offset"] = value
+        checked = _validate_comparison(candidate)
+        if checked != self.project_document.comparison:
+            self.project_document.comparison = checked
             self.mark_dirty()
 
     def set_comparison_display(
@@ -895,6 +974,8 @@ class ProjectWorkflow(ScientificWorkflow):
                     candidate["colors"][identifier] = value
                 else:
                     record[name] = value
+                for settings in record.get("signal_settings", {}).values():
+                    settings.pop(name, None)
         checked = _validate_comparison(candidate)
         if checked != self.project_document.comparison:
             self.project_document.comparison = checked
@@ -979,24 +1060,16 @@ class ProjectWorkflow(ScientificWorkflow):
     ) -> list[GroupStatistics]:
         """Recalcule chaque signal coché pour l'affichage comme pour l'export."""
         settings = self.project_document.comparison["statistics"]
-        groups = [
-            RepeatGroup(
-                identifier=group["id"],
-                name=group["name"],
-                members=tuple(group["members"]),
-            )
-            for group in settings["groups"]
-        ]
         return [
             calculate_group_statistics(
                 curves,
-                group,
+                RepeatGroup("checked-experiments", _t("Moyenne des expériences cochées"),
+                            tuple(curve.identifier for curve in curves if curve.for_signal(signal).visible)),
                 replace(options, signal=signal),
                 grid_method=settings["grid_method"],
                 manual_points=settings["manual_points"],
             )
             for signal in options.signals
-            for group in groups
         ]
 
     def assign_blank_to_comparison(
@@ -1062,7 +1135,9 @@ class ProjectWorkflow(ScientificWorkflow):
                 base = self._process_experiment(
                     experiment,
                     positional,
-                    show_subtraction=stage != "original",
+                    show_subtraction=stage != "original" and (
+                        stage != "normalized" or record.get("show_subtraction", True)
+                    ),
                 )
                 effective_stage = stage
                 if blank is None and stage == "corrected":
@@ -1133,13 +1208,14 @@ class ProjectWorkflow(ScientificWorkflow):
                     ComparisonCurve(
                         identifier=self.comparison_key(experiment),
                         result=result,
-                        legend_name=f"{record['legend_name']} — {stage_label}",
+                        legend_name=f"{record['legend_name']} - {stage_label}",
                         visible=True,
                         line_style=str(record["line_style"]),
                         line_width=float(record["line_width"]),
                         marker=str(record["marker"]),
                         markevery=record["markevery"],
                         y_offset=float(record["y_offset"]),
+                        signal_settings=deepcopy(record.get("signal_settings", {})),
                         stage=effective_stage,
                         plot_options=plot_options,
                     )
@@ -1155,7 +1231,7 @@ class ProjectWorkflow(ScientificWorkflow):
             signal=selected_signals[0],
             signals=selected_signals,
             plot_options=PlotOptions(x_axis=x_axis, signals=selected_signals),
-            domain_mode=str(settings["domain_mode"]),
+            domain_mode="union",
             x_limits=tuple(settings["limits"]["x"]),
             y_limits=tuple(settings["y_limits"]),
             y_limits_by_signal={
@@ -1168,6 +1244,7 @@ class ProjectWorkflow(ScientificWorkflow):
             colors=dict(settings["colors"]),
             show_offsets_in_legend=bool(settings["show_offsets_in_legend"]),
             graph_settings=settings["graph"],
+            mean_styles=deepcopy(settings.get('mean_styles', {})),
         )
         return options, curves, warnings
 
@@ -1211,26 +1288,9 @@ class ProjectWorkflow(ScientificWorkflow):
         result = curve.result if curve is not None else self.result
         if result is None:
             raise ValueError("Aucun résultat traité n'est disponible.")
-        references = None
-        reference_error = None
         reference_source = result if curve is not None else self.base_result or result
-        experiment = result.experiment
-        settings = self._settings_for_experiment(experiment)
-        manual_mass = None
-        if experiment is not None:
-            manual_mass = self._normalization_records.get(
-                id(experiment), {}
-            ).get("manual_mass_mg")
-        try:
-            references = compute_references(
-                reference_source,
-                settings,
-                None if manual_mass is None else float(manual_mass),
-            )
-            if references.mass_mg is None:
-                references = None
-        except (NormalizationError, TypeError, ValueError) as exc:
-            reference_error = str(exc)
+        references, reference_error = self.zone_references(reference_source)
+        settings = self._settings_for_experiment(result.experiment)
         quantified = quantify_zone(
             result,
             zone,
@@ -1243,6 +1303,22 @@ class ProjectWorkflow(ScientificWorkflow):
             signal_stage=curve.stage if curve is not None else "working",
         )
         return quantified, reference_error
+
+    def zone_references(self, result):
+        """Keep TG mass references available even if an unrelated normalization fails."""
+        experiment = result.experiment
+        settings = self._settings_for_experiment(experiment)
+        manual_mass = self._normalization_records.get(id(experiment), {}).get("manual_mass_mg")
+        try:
+            return compute_references(result, settings, manual_mass), None
+        except (NormalizationError, TypeError, ValueError) as exc:
+            try:
+                basic = replace(settings, reference_mode="first_valid", tg_representation="raw",
+                                heat_flow_representation="raw", normalization_enabled=False,
+                                use_initial_mass_as_reference=False, allow_missing_initial_mass=True)
+                return compute_references(result, basic, manual_mass), str(exc)
+            except (NormalizationError, TypeError, ValueError):
+                return None, str(exc)
 
     def document_for_save(
         self,

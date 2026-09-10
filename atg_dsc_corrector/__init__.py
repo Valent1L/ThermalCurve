@@ -1,7 +1,7 @@
 """ThermalCurve."""
 
 APP_NAME = "ThermalCurve"
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 COPYRIGHT = "© 2026 Valentin Legrand"
 CONTACT = "valentin.legrand@emse.fr"
 LICENSE = "PolyForm Noncommercial 1.0.0"

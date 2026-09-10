@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from .models import TIME_AXIS_SECONDS
+
+from dataclasses import dataclass, replace
 import math
+import re
 from typing import Iterable
 from uuid import uuid4
 
@@ -15,7 +18,7 @@ from .normalization import HEAT_FLOW_REPRESENTATIONS
 
 SUPPORTED_ZONE_AXES = {
     "time_s",
-    "time_min",
+    "time_min", "time_h",
     "furnace_temperature",
     "sample_temperature",
 }
@@ -33,8 +36,24 @@ class AnalysisZone:
     baseline_value: float | None = None
     baseline_representation: str | None = None
     baseline_unit: str | None = None
+    color: str | None = None
+    line_width: float | None = None
+    opacity: float | None = None
+    show_baseline: bool = True
+    positive_area_color: str | None = None
+    negative_area_color: str | None = None
+    baseline_color: str | None = None
 
     def __post_init__(self) -> None:
+        for color in (self.color, self.positive_area_color, self.negative_area_color, self.baseline_color):
+            if color is not None and (not isinstance(color, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", color)):
+                raise ValueError("Couleur de zone invalide.")
+        for value, lower, upper in ((self.line_width, .1, 10), (self.opacity, 0, 1)):
+            if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))
+                                      or not math.isfinite(value) or not lower <= value <= upper):
+                raise ValueError("Épaisseur ou opacité de zone invalide.")
+        if not isinstance(self.show_baseline, bool):
+            raise ValueError("La visibilité de la ligne de base doit être booléenne.")
         if not self.identifier.strip():
             raise ValueError("L'identifiant de la zone est obligatoire.")
         if not self.name.strip():
@@ -78,7 +97,7 @@ class AnalysisZone:
                 "Le contexte HeatFlow est réservé aux lignes de base constantes explicites."
             )
 
-    def to_dict(self) -> dict[str, str | float | None]:
+    def to_dict(self) -> dict[str, str | float | bool | None]:
         return {
             "id": self.identifier,
             "name": self.name,
@@ -89,6 +108,13 @@ class AnalysisZone:
             "baseline_value": self.baseline_value,
             "baseline_representation": self.baseline_representation,
             "baseline_unit": self.baseline_unit,
+            "color": self.color,
+            "line_width": self.line_width,
+            "opacity": self.opacity,
+            "show_baseline": self.show_baseline,
+            "positive_area_color": self.positive_area_color,
+            "negative_area_color": self.negative_area_color,
+            "baseline_color": self.baseline_color,
         }
 
 
@@ -189,8 +215,8 @@ class AnalysisZoneManager:
         preserve_context = preserve_value and (
             baseline_representation is None and baseline_unit is None
         )
-        updated = AnalysisZone(
-            identifier=current.identifier,
+        updated = replace(
+            current,
             name=name.strip(),
             axis_type=current.axis_type,
             start=float(start),
@@ -260,8 +286,8 @@ class AnalysisZoneManager:
 def axis_values(experiment: ExperimentData, axis_type: str) -> pd.Series:
     if axis_type == "time_s":
         return pd.to_numeric(experiment.data["Temps_s"], errors="coerce")
-    if axis_type == "time_min":
-        return pd.to_numeric(experiment.data["Temps_s"], errors="coerce") / 60.0
+    if axis_type in TIME_AXIS_SECONDS:
+        return pd.to_numeric(experiment.data["Temps_s"], errors="coerce") / TIME_AXIS_SECONDS[axis_type]
     if axis_type not in SUPPORTED_ZONE_AXES:
         raise ValueError(f"Axe de zone inconnu : {axis_type}")
     column = getattr(experiment.mapping, axis_type)
@@ -277,8 +303,8 @@ def axis_values(experiment: ExperimentData, axis_type: str) -> pd.Series:
 def axis_unit(experiment: ExperimentData, axis_type: str) -> str:
     if axis_type == "time_s":
         return "s"
-    if axis_type == "time_min":
-        return "min"
+    if axis_type in TIME_AXIS_SECONDS:
+        return axis_type.removeprefix("time_")
     return experiment.unit_for(axis_type) if axis_type in SUPPORTED_ZONE_AXES else ""
 
 

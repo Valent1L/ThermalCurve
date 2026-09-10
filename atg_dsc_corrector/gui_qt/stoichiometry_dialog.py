@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from atg_dsc_corrector.i18n import language, tr as _t
+from atg_dsc_corrector.i18n import canonical_number, decimal_text, language, tr as _t
 
 from copy import deepcopy
 from decimal import Decimal, ROUND_HALF_EVEN, localcontext
@@ -48,6 +48,7 @@ from atg_dsc_corrector.stoichiometry import (
     CondensedMassBalance,
     ExcessGas,
     GasByFraction,
+    GasByFlow,
     GasByPartialPressure,
     IdealGasConditions,
     IndividualMasses,
@@ -103,7 +104,7 @@ def _mapping(value: object) -> Mapping[str, Any]:
 
 
 def _text(value: object) -> str:
-    return "" if value is None else str(value)
+    return "" if value is None else decimal_text(value)
 
 
 def _new_entry() -> dict[str, Any]:
@@ -154,6 +155,13 @@ def _gas_input_from_data(value: object):
         )
     if mode == "excess":
         return ExcessGas()
+    if mode == "flow":
+        flow = _mapping(data.get("flow"))
+        return GasByFlow(flow.get("flow", ""), _text(flow.get("flow_unit", "mL/min")),
+            flow.get("duration", ""), _text(flow.get("duration_unit", "min")),
+            flow.get("pressure", ""), _text(flow.get("pressure_unit", "bar")),
+            flow.get("temperature", ""), _text(flow.get("temperature_unit", "°C")),
+            flow.get("value", ""), _text(flow.get("kind", "percent")))
     raise MassBalanceError(_t('Mode gazeux inconnu dans le projet.'))
 
 
@@ -200,16 +208,18 @@ class GasInputWidget(QGroupBox):
         self.mode_combo.addItem(_t('Pression partielle, volume et température'), "partial_pressure")
         self.mode_combo.addItem(_t('ppm molaire ou ppmv'), "fraction")
         self.mode_combo.addItem(_t('Gaz en excès'), "excess")
+        self.mode_combo.addItem(_t('Débit × durée et composition'), "flow")
         layout.addWidget(self.mode_combo)
         self.stack = QStackedWidget(self)
         self.mass_value, self.mass_unit, mass_page = self._mass_page()
         self.partial_fields, partial_page = self._pvt_page(_t('Pression partielle'))
         self.fraction_fields, fraction_page = self._fraction_page()
+        self.flow_fields, flow_page = self._flow_page()
         excess_page = QWidget(self)
         excess_layout = QVBoxLayout(excess_page)
         excess_layout.addWidget(QLabel(_t("Ce gaz ne limite pas l'avancement."), excess_page))
         excess_layout.addStretch(1)
-        for page in (mass_page, partial_page, fraction_page, excess_page):
+        for page in (mass_page, partial_page, fraction_page, excess_page, flow_page):
             self.stack.addWidget(page)
         layout.addWidget(self.stack)
         self.mode_combo.currentIndexChanged.connect(self._mode_changed)
@@ -261,7 +271,7 @@ class GasInputWidget(QGroupBox):
         return fields, page
 
     def _connect_changes(self) -> None:
-        widgets = [self.mass_value, self.mass_unit, *self.partial_fields.values(), *self.fraction_fields.values()]
+        widgets = [self.mass_value, self.mass_unit, *self.partial_fields.values(), *self.fraction_fields.values(), *self.flow_fields.values()]
         for widget in widgets:
             if isinstance(widget, QLineEdit):
                 widget.textChanged.connect(self.changed)
@@ -275,16 +285,17 @@ class GasInputWidget(QGroupBox):
     @staticmethod
     def _field_data(fields: Mapping[str, QWidget]) -> dict[str, str]:
         return {
-            name: widget.text() if isinstance(widget, QLineEdit) else widget.currentText()
+            name: canonical_number(widget.text()) if isinstance(widget, QLineEdit) else widget.currentData() or widget.currentText()
             for name, widget in fields.items()
         }
 
     def data(self) -> dict[str, Any]:
         return {
             "mode": self.mode_combo.currentData(),
-            "mass": {"value": self.mass_value.text(), "unit": self.mass_unit.currentText()},
+            "mass": {"value": canonical_number(self.mass_value.text()), "unit": self.mass_unit.currentText()},
             "partial_pressure": self._field_data(self.partial_fields),
             "fraction": self._field_data(self.fraction_fields),
+            "flow": self._field_data(self.flow_fields),
         }
 
     def set_data(self, value: object) -> None:
@@ -307,6 +318,32 @@ class GasInputWidget(QGroupBox):
                 widget.setText(_text(item))
             else:
                 widget.setCurrentIndex(max(0, widget.findText(_text(item))))
+        for name, widget in self.flow_fields.items():
+            item = _mapping(data.get("flow")).get(name, "")
+            if isinstance(widget, QLineEdit):
+                widget.setText(_text(item))
+            else:
+                index = widget.findData(item)
+                widget.setCurrentIndex(max(0, index if index >= 0 else widget.findText(_text(item))))
+
+    def _flow_page(self):
+        fields, page = self._pvt_page(_t("Pression totale absolue de référence du débit"))
+        form = page.layout()
+        form.removeRow(fields.pop("volume"))
+        form.removeRow(fields.pop("volume_unit"))
+        form.labelForField(fields["temperature"]).setText(_t("Température de référence du débit"))
+        fields.update(flow=QLineEdit(page), flow_unit=self._combo(("mL/min", "L/min", "mL/s", "L/s", "mL/h", "L/h"), "mL/min"),
+                      duration=QLineEdit(page), duration_unit=self._combo(("min", "s", "h"), "min"),
+                      value=QLineEdit(page), kind=QComboBox(page))
+        for label, key in (("% (mol/mol)", "percent"), ("ppm (mol/mol)", "molar_ppm"), ("ppmv", "ppmv")):
+            fields["kind"].addItem(label, key)
+        for row, (label, key) in enumerate((("Débit total du mélange", "flow"), ("Unité de débit", "flow_unit"),
+            ("Durée d'exposition", "duration"), ("Unité de durée", "duration_unit"), ("Teneur du gaz réactif", "value"), ("Unité de teneur", "kind"))):
+            form.insertRow(row, _t(label), fields[key])
+        notice = QLabel(_t("Débit et composition supposés constants. Utiliser les conditions de référence du débitmètre, pas celles du four. Quantité apportée, sans modèle de cinétique ni de diffusion."))
+        notice.setWordWrap(True)
+        form.addRow(notice)
+        return fields, page
 
 
 class StoichiometryDialog(QDialog):
@@ -345,7 +382,7 @@ class StoichiometryDialog(QDialog):
         layout.setContentsMargins(8, 8, 8, 8)
         editor = self._build_editor_scroll()
         top = QHBoxLayout()
-        self.style_title = QLabel(_t('Atelier scientifique'))
+        self.style_title = QLabel(_t("Console d'analyse"))
         self.style_title.setObjectName("workspaceTitle")
         top.addWidget(self.style_title)
         top.addStretch(1)
@@ -388,15 +425,14 @@ class StoichiometryDialog(QDialog):
         self.batch_summary.setWordWrap(True)
         layout.addWidget(self.batch_summary)
 
-    def set_appearance(self, style: str) -> None:
-        console = style == "console"
-        self.style_title.setText(_t("Console d'analyse") if console else _t('Atelier scientifique'))
-        self.equations_table.verticalHeader().setDefaultSectionSize(68 if console else 96)
-        self.equation_edit.setProperty("console", console)
+    def set_appearance(self) -> None:
+        self.style_title.setText(_t("Console d'analyse"))
+        self.equations_table.verticalHeader().setDefaultSectionSize(68)
+        self.equation_edit.setProperty("console", True)
         self.equation_edit.style().unpolish(self.equation_edit)
         self.equation_edit.style().polish(self.equation_edit)
         for card in self.summary_cards:
-            card.setProperty("console", console)
+            card.setProperty("console", True)
             card.style().unpolish(card)
             card.style().polish(card)
 
@@ -452,6 +488,7 @@ class StoichiometryDialog(QDialog):
         self.equation_edit.setObjectName("reactionEquation")
         self.equation_edit.setPlaceholderText(_t('Ex. CaCO3(s) = CaO(s) + CO2(g)'))
         self.equation_edit.setAccessibleName(_t('Équation courante'))
+        self.equation_edit.setToolTip(_t("Hydrates et adduits : MgCl2.6H2O ou MgCl2·6H2O. Les états (s), (l) et (g) sont facultatifs ; (s) est utilisé par défaut."))
         equation_layout.addWidget(self.equation_edit)
         actions = QHBoxLayout()
         self.verify_button = QPushButton(_t('Vérifier'), equation_group)
@@ -558,7 +595,7 @@ class StoichiometryDialog(QDialog):
                 self.delta_title = label
                 card.setProperty("massChange", True)
             label.setWordWrap(True)
-            value = QLabel("—")
+            value = QLabel("-")
             value.setObjectName("massSummaryValue")
             card_layout.addWidget(label)
             card_layout.addWidget(value)
@@ -871,7 +908,7 @@ class StoichiometryDialog(QDialog):
         if result is None:
             self.delta_title.setText(_t('Δm condensée'))
             for label in self.summary_values:
-                label.setText("—")
+                label.setText("-")
             self.balance_summary.setText(error or _t('Renseignez les données puis calculez la sélection.'))
             return
         values = (
@@ -933,14 +970,14 @@ class StoichiometryDialog(QDialog):
             index = self.mass_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
             unit = self.mass_table.cellWidget(row, 2)
             masses[str(index)] = {
-                "value": self.mass_table.item(row, 1).text(),
+                "value": canonical_number(self.mass_table.item(row, 1).text()),
                 "unit": unit.currentText(),
             }
         entry["inputs"] = {
             "condensed_mode": "individual" if self.individual_radio.isChecked() else "total",
             "individual_masses": masses,
             "total_mass": {
-                "value": self.total_mass_value.text(),
+                "value": canonical_number(self.total_mass_value.text()),
                 "unit": self.total_mass_unit.currentText(),
             },
             "gases": {str(widget.reactant_index): widget.data() for widget in self._gas_widgets},
@@ -1196,6 +1233,13 @@ class StoichiometryDialog(QDialog):
                     f"{_text(values.get('volume_unit'))}, T={_text(values.get('temperature'))} "
                     f"{_text(values.get('temperature_unit'))}"
                 )
+            elif mode == "flow":
+                values = _mapping(gas.get("flow"))
+                lines.append(f"- {species.formula} : Q={_text(values.get('flow'))} {_text(values.get('flow_unit'))}, "
+                    f"t={_text(values.get('duration'))} {_text(values.get('duration_unit'))}, "
+                    f"x={_text(values.get('value'))} {_text(values.get('kind'))}, "
+                    f"P_ref={_text(values.get('pressure'))} {_text(values.get('pressure_unit'))}, "
+                    f"T_ref={_text(values.get('temperature'))} {_text(values.get('temperature_unit'))}")
             else:
                 lines.append(_t('- {v1} : gaz en excès', v1=species.formula))
         return lines

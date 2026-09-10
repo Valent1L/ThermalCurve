@@ -39,6 +39,15 @@ def quantify_group_zone(statistics: GroupStatistics, zone: AnalysisZone, *, axis
     Les bornes de Δ sont l'enveloppe des bandes ponctuelles aux deux extrémités,
     pas un écart-type de Δ (qui nécessiterait leur covariance).
     """
+    x, values, deviations = _zone_mean_data(statistics, zone, axis_type=axis_type)
+    start_std = end_std = None
+    if np.isfinite(deviations).all():
+        start_std, end_std = float(deviations[0]), float(deviations[-1])
+    return GroupZoneSummary(float(values[0]), float(values[-1]), float(values.min()), float(values.max()), start_std, end_std)
+
+
+def _zone_mean_data(statistics: GroupStatistics, zone: AnalysisZone, *, axis_type: str):
+    """Clip the displayed mean and its band, retaining the existing boundary rules."""
     if zone.axis_type != axis_type:
         raise ValueError("La zone et la moyenne utilisent des axes différents.")
     x, mean, std = statistics.x, statistics.mean, statistics.std
@@ -54,12 +63,13 @@ def quantify_group_zone(statistics: GroupStatistics, zone: AnalysisZone, *, axis
     last = min(x.size - 1, int(np.searchsorted(x, zone.end, side="left")))
     if not np.isfinite(mean[first:last + 1]).all():
         raise ValueError("La moyenne comporte une lacune dans la zone.")
-    start, end = np.interp([zone.start, zone.end], x, mean)
-    values = np.r_[start, mean[(x > zone.start) & (x < zone.end)], end]
-    start_std = end_std = None
+    inside = (x > zone.start) & (x < zone.end)
+    positions = np.r_[zone.start, x[inside], zone.end]
+    values = np.interp(positions, x, mean)
+    deviations = np.full(positions.shape, np.nan)
     if np.isfinite(std[first:last + 1]).all():
-        start_std, end_std = map(float, np.interp([zone.start, zone.end], x, std))
-    return GroupZoneSummary(float(start), float(end), float(values.min()), float(values.max()), start_std, end_std)
+        deviations = np.interp(positions, x, std)
+    return positions, values, deviations
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,7 +213,7 @@ def calculate_group_statistics(
             continue
         x, y, rows, source_size, unit, scientific_unit = resolved
         if (
-            curve_options.x_axis in {"time_s", "time_min"}
+            curve_options.x_axis in {"time_s", "time_min", "time_h"}
             and not np.all(np.diff(x) > 0.0)
         ):
             statistics.excluded[identifier] = (

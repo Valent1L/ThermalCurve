@@ -19,7 +19,7 @@ DEST = ROOT / "licenses"
 ARCHIVES = ROOT / ".tmp/third-party-sources"
 PACKAGES = (
     "PySide6", "PySide6_Essentials", "PySide6_Addons", "shiboken6", "matplotlib",
-    "numpy", "pandas", "openpyxl", "xlrd", "contourpy", "cycler", "fonttools",
+    "numpy", "pandas", "openpyxl", "xlsxwriter", "xlrd", "contourpy", "cycler", "fonttools",
     "kiwisolver", "packaging", "pillow", "pyparsing", "python-dateutil", "tzdata",
     "et-xmlfile", "six", "PyInstaller", "typing_extensions",
 )

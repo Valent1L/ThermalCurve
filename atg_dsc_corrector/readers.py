@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .models import TIME_UNIT_SECONDS
+
 import codecs
 import csv
 from dataclasses import dataclass
@@ -75,7 +77,7 @@ class DetectedFileFormat:
         }[self.kind]
         suffix_note = (
             " avec extension .xls"
-            if self.kind == "text_utf16" and path.suffix.lower() == ".xls"
+            if path.suffix.lower() == ".xls"
             else ""
         )
         return f"Texte {encoding} {separator}{suffix_note}"
@@ -139,11 +141,12 @@ _ALIASES: dict[str, tuple[str, ...]] = {
 
 _TIME_SECONDS = {"s","/s","sec", "secs", "second", "seconds", "seconde", "secondes"}
 _TIME_MINUTES = {"min", "mins", "minute", "minutes"}
+_TIME_HOURS = {"h", "hr", "hrs", "hour", "hours", "heure", "heures"}
 _INDEX_KEYS = {"index", "indice", "point"}
 _TIME_KEYS = {"temps", "time", "t"}
 _TEMPERATURE_KEYS = {"temperature", "temp","/°C"}
 _TG_KEYS = {"tg", "masse", "mass", "weight","/mg"}
-_DTG_KEYS = {"dtg", "deriveetg", "derivativetg"}
+_DTG_KEYS = {"dtg", "deriveetg", "derivativetg", "/mg/min", "/mg/s", "/mg/h"}
 _HEAT_FLOW_KEYS = {"heatflow", "dsc", "fluxthermique", "fluxdechaleur"}
 
 
@@ -234,7 +237,7 @@ def detect_columns(
 
 
 def detect_time_unit(unit: str, header: str = "", override: str | None = None) -> str:
-    """Retourne ``s`` ou ``min`` sans déduire l'unité d'après les valeurs."""
+    """Retourne ``s``, ``min`` ou ``h`` sans déduire l'unité d'après les valeurs."""
 
     candidates = [override or "", unit, _unit_from_header(header)]
     for candidate in candidates:
@@ -243,9 +246,11 @@ def detect_time_unit(unit: str, header: str = "", override: str | None = None) -
             return "s"
         if key in _TIME_MINUTES:
             return "min"
+        if key in _TIME_HOURS:
+            return "h"
     raise DataReadError(
-        "Unité de temps non reconnue. Indiquer manuellement 's' ou 'min' "
-        "(variantes acceptées: sec, seconde(s), minute(s))."
+        "Unité de temps non reconnue. Indiquer manuellement 's', 'min' ou 'h' "
+        "(variantes acceptées: sec, seconde(s), minute(s), heure(s))."
     )
 
 
@@ -471,7 +476,7 @@ def _normalise_loaded_data(
         .str.replace(",", ".", regex=False),
         errors="coerce",
     )
-    result["Temps_s"] = time_values * (60.0 if time_unit == "min" else 1.0)
+    result["Temps_s"] = time_values * TIME_UNIT_SECONDS[time_unit]
 
     invalid = int(result["Temps_s"].isna().sum())
     if invalid:
@@ -713,6 +718,31 @@ def _find_text_header(lines: list[str]) -> tuple[str, list[list[str]], int]:
     raise DataReadError(errors[0])
 
 
+def _text_layout(lines: list[str]):
+    """Recognize the separate ATG units row before trying the dynamic DSC layout."""
+    if len(lines) < 3:
+        raise DataReadError("Le fichier texte ne contient pas l'en-tête attendu.")
+    try:
+        delimiter = _detect_delimiter(lines, 1)
+    except DataReadError:
+        delimiter, rows, header = _find_text_header(lines)
+        return delimiter, rows, header, header + 1, False
+    rows = _rows_from_text(lines, delimiter)
+    # The classic three-line export also supports manually mapped headers.
+    units = [_unit_from_units_row(value) for value in rows[2] if _text(value)]
+    if len(_trim_trailing_empty(rows[1])) >= 2 and units and any(
+        _unit_key(unit) in {"s", "sec", "secondes", "min", "minutes", "h", "heures", "c", "°c", "k", "mg", "%", "mw", "w"}
+        or _text(value).startswith("/") for value, unit in zip([value for value in rows[2] if _text(value)], units)
+    ) and not _row_is_majority_numeric(rows[2]):
+        return delimiter, rows, 1, 3, True
+    try:
+        delimiter, rows, header = _find_text_header(lines)
+        return delimiter, rows, header, header + 1, False
+    except DataReadError:
+        # Preserve the existing manual-mapping path for unknown units/headers.
+        return delimiter, rows, 1, 3, True
+
+
 def _read_text_experiment(
     source: Path,
     detected: DetectedFileFormat,
@@ -720,16 +750,7 @@ def _read_text_experiment(
     time_unit: str | None,
 ) -> ExperimentData:
     lines, encoding = _read_text_lines(source, detected)
-    if source.suffix.lower() == ".xls":
-        delimiter, rows, header_index = _find_text_header(lines)
-        data_start = header_index + 1
-        has_units_row = False
-    else:
-        header_index, data_start, has_units_row = 1, 3, True
-        if len(lines) <= header_index:
-            raise DataReadError("Le fichier texte ne contient pas l'en-tête attendu.")
-        delimiter = _detect_delimiter(lines, header_index)
-        rows = _rows_from_text(lines, delimiter)
+    delimiter, rows, header_index, data_start, has_units_row = _text_layout(lines)
     minimum = data_start + 1
     if len(lines) < minimum:
         raise DataReadError(
@@ -870,15 +891,7 @@ def probe_file(path: str | Path, sheet_name: str | None = None) -> FileProbe:
         sheets = list(book.sheet_names)
     else:
         lines, _ = _read_text_lines(source, detected)
-        if source.suffix.lower() == ".xls":
-            delimiter, rows, header_index = _find_text_header(lines)
-            has_units_row = False
-        else:
-            header_index, has_units_row = 1, True
-            if len(lines) <= header_index:
-                raise DataReadError("Le fichier texte ne contient pas l'en-tête attendu.")
-            delimiter = _detect_delimiter(lines, header_index)
-            rows = _rows_from_text(lines, delimiter)
+        delimiter, rows, header_index, _data_start, has_units_row = _text_layout(lines)
         schema = _build_header_schema(_trim_trailing_empty(rows[header_index]))
         columns = list(schema.columns)
         values = (

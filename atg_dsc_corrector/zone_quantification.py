@@ -102,7 +102,7 @@ def _reference_values(
 ) -> _ReferenceValues:
     if references is not None:
         return _ReferenceValues(
-            m0_mg=float(references.mass_mg),
+            m0_mg=_optional_float(references.mass_mg),
             tg0=references.tg_reference,
             normalization_mass_mg=references.normalization_mass_mg,
             normalization_mass_source=references.normalization_mass_source,
@@ -349,6 +349,14 @@ def _split_signed_area(time_s: np.ndarray, signal: np.ndarray) -> tuple[float, f
     return above, total - above
 
 
+def _zone_baseline(zone: AnalysisZone, axis: np.ndarray, signal_start: float, signal_end: float) -> np.ndarray:
+    if zone.baseline_method == "none":
+        return np.zeros(len(axis), dtype=float)
+    if zone.baseline_method == "constant":
+        return np.full(len(axis), signal_start if zone.baseline_value is None else zone.baseline_value, dtype=float)
+    return signal_start + (signal_end - signal_start) * (axis - zone.start) / (zone.end - zone.start)
+
+
 def heat_flow_zone_profile(
     result: CorrectionResult,
     zone: AnalysisZone,
@@ -472,20 +480,7 @@ def heat_flow_zone_profile(
         )
     signal_start = float(finite_profile.loc[finite_profile["axis"].idxmin(), "signal"])
     signal_end = float(finite_profile.loc[finite_profile["axis"].idxmax(), "signal"])
-    if zone.baseline_method == "none":
-        baseline = np.zeros(len(profile), dtype=float)
-    elif zone.baseline_method == "constant":
-        baseline = np.full(
-            len(profile),
-            signal_start if zone.baseline_value is None else zone.baseline_value,
-            dtype=float,
-        )
-    else:
-        baseline = signal_start + (
-            (signal_end - signal_start)
-            * (profile["axis"].to_numpy(dtype=float) - zone.start)
-            / (zone.end - zone.start)
-        )
+    baseline = _zone_baseline(zone, profile["axis"].to_numpy(dtype=float), signal_start, signal_end)
     signal = profile["signal"].to_numpy(dtype=float)
     corrected = signal - baseline
     warnings: list[str] = []
@@ -533,7 +528,7 @@ def unavailable_zone_quantification(
     axis_unit_value: str = "",
 ) -> ZoneQuantification:
     if not axis_unit_value:
-        axis_unit_value = {"time_s": "s", "time_min": "min"}.get(
+        axis_unit_value = {"time_s": "s", "time_min": "min", "time_h": "h"}.get(
             zone.axis_type, ""
         )
     return ZoneQuantification(
@@ -691,14 +686,15 @@ def quantify_zone(
             )
             tg_end = float(np.interp(zone.end, tg["axis"], tg["signal"]))
             delta_zone_mg = tg_end - tg_start
-            if reference_values.m0_mg is None or reference_values.tg0 is None:
+            if reference_values.m0_mg is None or reference_values.m0_mg <= 0:
                 warnings.append(
-                    "m0 ou la référence TG0 est absent : résultats relatifs indisponibles."
+                    "Masse initiale m0 absente : renseignez-la dans Réglages > Préparation pour obtenir Δm/m0."
                 )
             else:
                 delta_zone_pct_m0 = (
                     100.0 * delta_zone_mg / reference_values.m0_mg
                 )
+            if reference_values.m0_mg is not None and reference_values.m0_mg > 0 and reference_values.tg0 is not None:
                 remaining_mass_end_mg = (
                     reference_values.m0_mg
                     + tg_end

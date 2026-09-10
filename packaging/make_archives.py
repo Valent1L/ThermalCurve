@@ -31,17 +31,24 @@ def main():
             assert hashlib.file_digest(stream, "sha256").hexdigest() == checksum, name
     folder = DIST / f"{PREFIX}-windows-x64" / "ThermalCurve"
     assert (folder / "ThermalCurve.exe").is_file()
+    for example in (ROOT / "Exemple").rglob("*"):
+        if example.is_file():
+            packaged = folder / example.relative_to(ROOT)
+            assert packaged.is_file() and packaged.read_bytes() == example.read_bytes(), packaged
+    assert (folder / "changelog.md").is_file()
     files = list(folder.rglob("*"))
     forbidden = {".git", ".venv", ".codex", ".agents", "__pycache__", ".pytest_cache"}
-    assert not any(forbidden.intersection(file.parts) or file.suffix == ".atgproj" for file in files)
+    assert not any(forbidden.intersection(file.parts) or (
+        file.suffix == ".atgproj" and not file.is_relative_to(folder / "Exemple")
+    ) for file in files)
     binary = DIST / f"{PREFIX}-windows-x64.zip"
     archive(binary, files, folder, "ThermalCurve")
 
     sources = [ROOT / name for name in (
-        "README_FR.txt", "README_EN.txt", "LICENSE.txt", "THIRD_PARTY_NOTICES.txt",
+        "README.md", "README_EN.md", "changelog.md", "LICENSE.txt", "THIRD_PARTY_NOTICES.txt",
         "pyproject.toml", "requirements.txt", "run_qt.py", "atg_dsc_corrector_qt.spec", ".gitattributes",
     )]
-    for directory in ("atg_dsc_corrector", "licenses", "packaging"):
+    for directory in ("atg_dsc_corrector", "licenses", "packaging", "Exemple"):
         sources.extend(file for file in (ROOT / directory).rglob("*")
                        if file.is_file() and "__pycache__" not in file.parts
                        and file.suffix not in {".pyc", ".pyo"})

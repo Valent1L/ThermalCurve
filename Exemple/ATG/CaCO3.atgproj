@@ -1,0 +1,495 @@
+{
+  "schema_version": 1,
+  "app_version": "1.0.1",
+  "project_name": "CaCO3",
+  "created_at": "2026-09-09T14:08:28.453822+00:00",
+  "modified_at": "2026-09-09T14:29:22.752264+00:00",
+  "sources": {
+    "experiments": [
+      {
+        "name": "CaCO3(20,8mg).txt",
+        "paths": {
+          "relative": "CaCO3(20,8mg).txt",
+          "absolute": "C:\\Users\\valentin.legrand\\Desktop\\ATG-DSC-Tool\\Exemple\\ATG\\CaCO3(20,8mg).txt"
+        },
+        "fingerprint": {
+          "size": 106789,
+          "modified_at": "2007-05-22T06:44:00+00:00",
+          "sha256": "7734ecaacc7c052762c6ff480e5ae838f95cf5af34a8d941728f5c24cb8fd3aa"
+        },
+        "detected_format": "Texte Windows-1252 tabulé",
+        "header_line": 2,
+        "sheet_name": null,
+        "column_mapping": {
+          "time": "Temps",
+          "furnace_temperature": "Température four",
+          "sample_temperature": null,
+          "tg": "TG",
+          "dtg": null,
+          "heat_flow": null
+        },
+        "original_columns": [
+          "Température four",
+          "Temps",
+          "TG"
+        ],
+        "original_units": {
+          "Température four": "°C",
+          "Temps": "s",
+          "TG": "mg"
+        },
+        "time_unit": "s",
+        "description": "CaWO4_3CaCO3(40mg)_VL_260728",
+        "warnings": []
+      }
+    ],
+    "blank": {
+      "name": "Blanc.txt",
+      "paths": {
+        "relative": "Blanc.txt",
+        "absolute": "C:\\Users\\valentin.legrand\\Desktop\\ATG-DSC-Tool\\Exemple\\ATG\\Blanc.txt"
+      },
+      "fingerprint": {
+        "size": 97087,
+        "modified_at": "2026-09-08T09:27:31.904327+00:00",
+        "sha256": "9359232687bcd9c306c82270c46a9f4bf545fafce1ad10a1e7dc4459ad857b39"
+      },
+      "detected_format": "Texte Windows-1252 tabulé",
+      "header_line": 2,
+      "sheet_name": null,
+      "column_mapping": {
+        "time": "Temps",
+        "furnace_temperature": "Température four",
+        "sample_temperature": null,
+        "tg": "TG",
+        "dtg": null,
+        "heat_flow": null
+      },
+      "original_columns": [
+        "Température four",
+        "Temps",
+        "TG"
+      ],
+      "original_units": {
+        "Température four": "°C",
+        "Temps": "s",
+        "TG": "mg"
+      },
+      "time_unit": "s",
+      "description": "CaWO4_3CaCO3(40mg)_VL_260728",
+      "warnings": []
+    }
+  },
+  "correction": {
+    "tg_method": "direct",
+    "interpolation_axis": "time_s"
+  },
+  "display": {
+    "x_axis": "time_min",
+    "visible_signals": [
+      "tg",
+      "dtg",
+      "heat_flow"
+    ],
+    "limits": {
+      "x": [
+        null,
+        null
+      ],
+      "tg": [
+        null,
+        null
+      ],
+      "dtg": [
+        null,
+        null
+      ],
+      "heat_flow": [
+        null,
+        null
+      ]
+    },
+    "align_zeros": true,
+    "alignment_mode": "zeros",
+    "analysis_zone_selected_id": "a8281610-6eb7-4854-a4e1-a8f8b8c35e7d",
+    "show_zone_surfaces": true,
+    "show_zone_baselines": true,
+    "show_subtraction": true,
+    "graph": {
+      "title": "Comparaison des expériences",
+      "axis_labels": {
+        "x": "",
+        "tg": "",
+        "dtg": "",
+        "heat_flow": ""
+      },
+      "axis_scales": {
+        "x": "linear",
+        "tg": "linear",
+        "dtg": "linear",
+        "heat_flow": "linear"
+      },
+      "major_tick_steps": {
+        "x": null,
+        "tg": null,
+        "dtg": null,
+        "heat_flow": null
+      },
+      "minor_tick_subdivisions": {
+        "x": 0,
+        "tg": 0,
+        "dtg": 0,
+        "heat_flow": 0
+      },
+      "tick_formats": {
+        "x": "auto",
+        "tg": "auto",
+        "dtg": "auto",
+        "heat_flow": "auto"
+      },
+      "tick_decimals": {
+        "x": 2,
+        "tg": 2,
+        "dtg": 2,
+        "heat_flow": 2
+      },
+      "x_tick_rotation": 0,
+      "grid_major": true,
+      "grid_minor": false,
+      "grid_axis": "both",
+      "legend_visible": true,
+      "legend_position": "lower right",
+      "curve_styles": {},
+      "reference_lines": [],
+      "annotations": [],
+      "axis_spacing": {
+        "tg_right_position": 1.0,
+        "dtg_right_position": 1.12,
+        "label_pads": {
+          "x": 4.0,
+          "tg": 4.0,
+          "dtg": 4.0,
+          "heat_flow": 4.0
+        },
+        "tick_pads": {
+          "x": 3.5,
+          "tg": 3.5,
+          "dtg": 3.5,
+          "heat_flow": 3.5
+        }
+      },
+      "fonts": {
+        "general": {
+          "family": "",
+          "size": 10.0,
+          "weight": "normal",
+          "style": "normal"
+        },
+        "overrides": {}
+      }
+    }
+  },
+  "normalization": {
+    "tg_reference_mode": "first_valid",
+    "heat_flow_reference_mode": "first_valid",
+    "reference_mode": "first_valid",
+    "reference_axis": "time_s",
+    "range_start": null,
+    "range_end": null,
+    "tg_representation": "raw",
+    "dtg_unit_mode": "source",
+    "dtg_representation": "raw",
+    "heat_flow_representation": "raw",
+    "normalization_enabled": false,
+    "reference_mass_mg": null,
+    "reference_name": "",
+    "use_initial_mass_as_reference": false,
+    "calculate_dtg_if_missing": true,
+    "dtg_smoothing_points": 101,
+    "experiments": [
+      {
+        "source_name": "CaCO3(20,8mg).txt",
+        "source_sha256": "7734ecaacc7c052762c6ff480e5ae838f95cf5af34a8d941728f5c24cb8fd3aa",
+        "manual_mass_mg": 20.8,
+        "m0_mg": 20.8,
+        "m_ref_mg": null,
+        "mass_source": "manual",
+        "normalization_mass_source": null,
+        "tg_reference": -0.0031,
+        "heat_flow_reference_mw": null
+      }
+    ]
+  },
+  "quality_control": {
+    "step_irregularity_relative": 0.2,
+    "interruption_seconds": 60.0,
+    "minimum_points": 10,
+    "maximum_temperature_jump_c": 25.0
+  },
+  "comparison": {
+    "entries": {
+      "CaCO3(20,8mg).txt": {
+        "selected": true,
+        "visible": true,
+        "legend_name": "CaCO3(20,8mg).txt",
+        "order": 0,
+        "line_style": "-",
+        "line_width": 1.4,
+        "marker": "",
+        "markevery": null,
+        "y_offset": 0.0,
+        "signal_settings": {
+          "heat_flow": {
+            "visible": true
+          },
+          "dtg": {
+            "color": "#4DB41E"
+          }
+        },
+        "stage": "normalized",
+        "show_subtraction": true,
+        "blank": {
+          "name": "Blanc.txt",
+          "paths": {
+            "relative": "Blanc.txt",
+            "absolute": "C:\\Users\\valentin.legrand\\Desktop\\ATG-DSC-Tool\\Exemple\\ATG\\Blanc.txt"
+          },
+          "fingerprint": {
+            "size": 97087,
+            "modified_at": "2026-09-08T09:27:31.904327+00:00",
+            "sha256": "9359232687bcd9c306c82270c46a9f4bf545fafce1ad10a1e7dc4459ad857b39"
+          },
+          "detected_format": "Texte Windows-1252 tabulé",
+          "header_line": 2,
+          "sheet_name": null,
+          "column_mapping": {
+            "time": "Temps",
+            "furnace_temperature": "Température four",
+            "sample_temperature": null,
+            "tg": "TG",
+            "dtg": null,
+            "heat_flow": null
+          },
+          "original_columns": [
+            "Température four",
+            "Temps",
+            "TG"
+          ],
+          "original_units": {
+            "Température four": "°C",
+            "Temps": "s",
+            "TG": "mg"
+          },
+          "time_unit": "s",
+          "description": "CaWO4_3CaCO3(40mg)_VL_260728",
+          "warnings": []
+        },
+        "correction": {
+          "tg_method": "direct",
+          "interpolation_axis": "time_s"
+        },
+        "normalization": {
+          "tg_reference_mode": "first_valid",
+          "heat_flow_reference_mode": "first_valid",
+          "reference_mode": "first_valid",
+          "reference_axis": "time_s",
+          "range_start": null,
+          "range_end": null,
+          "tg_representation": "raw",
+          "dtg_unit_mode": "source",
+          "dtg_representation": "raw",
+          "heat_flow_representation": "raw",
+          "normalization_enabled": false,
+          "reference_mass_mg": null,
+          "reference_name": "",
+          "use_initial_mass_as_reference": false,
+          "calculate_dtg_if_missing": true,
+          "dtg_smoothing_points": 101,
+          "experiments": []
+        }
+      }
+    },
+    "signal": "tg",
+    "signals": [
+      "tg",
+      "dtg",
+      "heat_flow"
+    ],
+    "representations": {
+      "tg": "delta_m_mg",
+      "dtg": "raw",
+      "heat_flow": "raw"
+    },
+    "dtg_unit_mode": "source",
+    "x_axis": "time_min",
+    "domain_mode": "union",
+    "x_limits": [
+      null,
+      null
+    ],
+    "y_limits": [
+      null,
+      null
+    ],
+    "limits": {
+      "x": [
+        null,
+        null
+      ],
+      "tg": [
+        null,
+        null
+      ],
+      "dtg": [
+        null,
+        null
+      ],
+      "heat_flow": [
+        null,
+        null
+      ]
+    },
+    "title": "Comparaison des expériences",
+    "grid": true,
+    "align_zeros": true,
+    "show_offsets_in_legend": false,
+    "statistics": {
+      "enabled": false,
+      "groups": [],
+      "display_mode": "mean_band",
+      "grid_method": "auto",
+      "manual_points": 200,
+      "show_mean": true,
+      "show_band": true,
+      "show_individual": false
+    },
+    "colors": {
+      "CaCO3(20,8mg).txt": "#1F77B4"
+    },
+    "graph": {
+      "title": "Comparaison des expériences",
+      "axis_labels": {
+        "x": "",
+        "tg": "",
+        "dtg": "",
+        "heat_flow": ""
+      },
+      "axis_scales": {
+        "x": "linear",
+        "tg": "linear",
+        "dtg": "linear",
+        "heat_flow": "linear"
+      },
+      "major_tick_steps": {
+        "x": null,
+        "tg": null,
+        "dtg": null,
+        "heat_flow": null
+      },
+      "minor_tick_subdivisions": {
+        "x": 0,
+        "tg": 0,
+        "dtg": 0,
+        "heat_flow": 0
+      },
+      "tick_formats": {
+        "x": "auto",
+        "tg": "auto",
+        "dtg": "auto",
+        "heat_flow": "auto"
+      },
+      "tick_decimals": {
+        "x": 2,
+        "tg": 2,
+        "dtg": 2,
+        "heat_flow": 2
+      },
+      "x_tick_rotation": 0,
+      "grid_major": true,
+      "grid_minor": false,
+      "grid_axis": "both",
+      "legend_visible": true,
+      "legend_position": "lower right",
+      "curve_styles": {},
+      "reference_lines": [],
+      "annotations": [],
+      "axis_spacing": {
+        "tg_right_position": 1.0,
+        "dtg_right_position": 1.12,
+        "label_pads": {
+          "x": 4.0,
+          "tg": 4.0,
+          "dtg": 4.0,
+          "heat_flow": 4.0
+        },
+        "tick_pads": {
+          "x": 3.5,
+          "tg": 3.5,
+          "dtg": 3.5,
+          "heat_flow": 3.5
+        }
+      },
+      "fonts": {
+        "general": {
+          "family": "",
+          "size": 10.0,
+          "weight": "normal",
+          "style": "normal"
+        },
+        "overrides": {}
+      }
+    }
+  },
+  "analysis_zones": [
+    {
+      "id": "a8281610-6eb7-4854-a4e1-a8f8b8c35e7d",
+      "name": "Zone 1",
+      "axis_type": "time_min",
+      "start": 0.0,
+      "end": 111.56105976991142,
+      "baseline_method": "none",
+      "baseline_value": null,
+      "baseline_representation": null,
+      "baseline_unit": null,
+      "color": null,
+      "line_width": null,
+      "opacity": null,
+      "show_baseline": true,
+      "positive_area_color": null,
+      "negative_area_color": null,
+      "baseline_color": null
+    }
+  ],
+  "stoichiometry": {
+    "version": 1,
+    "current_index": 0,
+    "equations": [
+      {
+        "text": "CaCO3 = CaO + CO2(g)",
+        "checked": true,
+        "inputs": {
+          "condensed_mode": "individual",
+          "individual_masses": {
+            "0": {
+              "value": "20,8",
+              "unit": "mg"
+            }
+          },
+          "total_mass": {
+            "value": "",
+            "unit": "mg"
+          },
+          "gases": {}
+        },
+        "atomic_data_source_id": "CIAAW-2024-abridged"
+      }
+    ],
+    "display": {
+      "mass_unit": "mg",
+      "amount_unit": "mol",
+      "notation": "scientific"
+    }
+  },
+  "processing_history": [],
+  "warnings": []
+}

@@ -1,0 +1,537 @@
+{
+  "schema_version": 1,
+  "app_version": "1.0.1",
+  "project_name": "MgCl2.6H2O",
+  "created_at": "2026-09-09T14:31:11.990100+00:00",
+  "modified_at": "2026-09-09T14:37:59.761571+00:00",
+  "sources": {
+    "experiments": [
+      {
+        "name": "MgCl2.6H2O.xls",
+        "paths": {
+          "relative": "MgCl2.6H2O.xls",
+          "absolute": "C:\\Users\\valentin.legrand\\Desktop\\ATG-DSC-Tool\\Exemple\\ATG-DSC\\MgCl2.6H2O.xls"
+        },
+        "fingerprint": {
+          "size": 1458978,
+          "modified_at": "2026-09-07T14:27:37.249321+00:00",
+          "sha256": "a94144f6308ba30778d5863f7a78fa98ce91f9c77044cb6f75dfd256f8084420"
+        },
+        "detected_format": "Texte UTF-16 tabulé avec extension .xls",
+        "header_line": 13,
+        "sheet_name": null,
+        "column_mapping": {
+          "time": "Temps",
+          "furnace_temperature": "Température du four",
+          "sample_temperature": "Température de l'échantillon",
+          "tg": "TG",
+          "dtg": null,
+          "heat_flow": "HeatFlow"
+        },
+        "original_columns": [
+          "Index",
+          "Temps",
+          "Température du four",
+          "Température de l'échantillon",
+          "TG",
+          "HeatFlow"
+        ],
+        "original_units": {
+          "Index": "",
+          "Temps": "min",
+          "Température du four": "°C",
+          "Température de l'échantillon": "°C",
+          "TG": "mg",
+          "HeatFlow": "mW"
+        },
+        "time_unit": "min",
+        "description": "MgCl2 6H2O",
+        "warnings": []
+      }
+    ],
+    "blank": {
+      "name": "Blanc.xls",
+      "paths": {
+        "relative": "Blanc.xls",
+        "absolute": "C:\\Users\\valentin.legrand\\Desktop\\ATG-DSC-Tool\\Exemple\\ATG-DSC\\Blanc.xls"
+      },
+      "fingerprint": {
+        "size": 1452346,
+        "modified_at": "2026-03-24T12:22:02+00:00",
+        "sha256": "bc3f1d4fb06dcfbc82cac302679bc185d492b7a919fc75ce324976f0bb30b5bd"
+      },
+      "detected_format": "Texte UTF-16 tabulé avec extension .xls",
+      "header_line": 13,
+      "sheet_name": null,
+      "column_mapping": {
+        "time": "Temps",
+        "furnace_temperature": "Température du four",
+        "sample_temperature": "Température de l'échantillon",
+        "tg": "TG",
+        "dtg": null,
+        "heat_flow": "HeatFlow"
+      },
+      "original_columns": [
+        "Index",
+        "Temps",
+        "Température du four",
+        "Température de l'échantillon",
+        "TG",
+        "HeatFlow"
+      ],
+      "original_units": {
+        "Index": "",
+        "Temps": "min",
+        "Température du four": "°C",
+        "Température de l'échantillon": "°C",
+        "TG": "mg",
+        "HeatFlow": "mW"
+      },
+      "time_unit": "min",
+      "description": "Blanc 17 mars 2026-2",
+      "warnings": []
+    }
+  },
+  "correction": {
+    "tg_method": "direct",
+    "interpolation_axis": "time_s"
+  },
+  "display": {
+    "x_axis": "sample_temperature",
+    "visible_signals": [
+      "tg",
+      "heat_flow"
+    ],
+    "limits": {
+      "x": [
+        null,
+        null
+      ],
+      "tg": [
+        null,
+        null
+      ],
+      "dtg": [
+        null,
+        null
+      ],
+      "heat_flow": [
+        null,
+        null
+      ]
+    },
+    "align_zeros": true,
+    "alignment_mode": "zeros",
+    "analysis_zone_selected_id": "649b1d29-31f9-4e37-8646-78c232862963",
+    "show_zone_surfaces": true,
+    "show_zone_baselines": true,
+    "show_subtraction": true,
+    "graph": {
+      "title": "",
+      "axis_labels": {
+        "x": "",
+        "tg": "",
+        "dtg": "",
+        "heat_flow": ""
+      },
+      "axis_scales": {
+        "x": "linear",
+        "tg": "linear",
+        "dtg": "linear",
+        "heat_flow": "linear"
+      },
+      "major_tick_steps": {
+        "x": null,
+        "tg": null,
+        "dtg": null,
+        "heat_flow": null
+      },
+      "minor_tick_subdivisions": {
+        "x": 1,
+        "tg": 0,
+        "dtg": 0,
+        "heat_flow": 0
+      },
+      "tick_formats": {
+        "x": "auto",
+        "tg": "auto",
+        "dtg": "auto",
+        "heat_flow": "auto"
+      },
+      "tick_decimals": {
+        "x": 2,
+        "tg": 2,
+        "dtg": 2,
+        "heat_flow": 2
+      },
+      "x_tick_rotation": 0,
+      "grid_major": true,
+      "grid_minor": false,
+      "grid_axis": "both",
+      "legend_visible": true,
+      "legend_position": "lower right",
+      "curve_styles": {},
+      "reference_lines": [],
+      "annotations": [],
+      "axis_spacing": {
+        "tg_right_position": 1.0,
+        "dtg_right_position": 1.12,
+        "label_pads": {
+          "x": 4.0,
+          "tg": 4.0,
+          "dtg": 4.0,
+          "heat_flow": 4.0
+        },
+        "tick_pads": {
+          "x": 3.5,
+          "tg": 3.5,
+          "dtg": 3.5,
+          "heat_flow": 3.5
+        }
+      },
+      "fonts": {
+        "general": {
+          "family": "",
+          "size": 10.0,
+          "weight": "normal",
+          "style": "normal"
+        },
+        "overrides": {}
+      }
+    }
+  },
+  "normalization": {
+    "tg_reference_mode": "first_valid",
+    "heat_flow_reference_mode": "first_valid",
+    "reference_mode": "first_valid",
+    "reference_axis": "time_s",
+    "range_start": null,
+    "range_end": null,
+    "tg_representation": "raw",
+    "dtg_unit_mode": "source",
+    "dtg_representation": "raw",
+    "heat_flow_representation": "raw",
+    "normalization_enabled": false,
+    "reference_mass_mg": null,
+    "reference_name": "",
+    "use_initial_mass_as_reference": false,
+    "calculate_dtg_if_missing": false,
+    "dtg_smoothing_points": 1,
+    "experiments": [
+      {
+        "manual_mass_mg": null,
+        "m0_mg": 12.8,
+        "m_ref_mg": null,
+        "mass_source": "metadata",
+        "normalization_mass_source": null,
+        "tg_reference": 0.000216,
+        "heat_flow_reference_mw": -1.50476,
+        "source_name": "MgCl2.6H2O.xls",
+        "source_sha256": "a94144f6308ba30778d5863f7a78fa98ce91f9c77044cb6f75dfd256f8084420"
+      }
+    ]
+  },
+  "quality_control": {
+    "step_irregularity_relative": 0.2,
+    "interruption_seconds": 60.0,
+    "minimum_points": 10,
+    "maximum_temperature_jump_c": 25.0
+  },
+  "comparison": {
+    "entries": {
+      "MgCl2.6H2O.xls": {
+        "selected": true,
+        "visible": true,
+        "legend_name": "MgCl2.6H2O.xls",
+        "order": 0,
+        "line_style": "-",
+        "line_width": 1.4,
+        "marker": "",
+        "markevery": null,
+        "y_offset": 0.0,
+        "signal_settings": {
+          "tg": {},
+          "heat_flow": {
+            "color": "#FF0000"
+          }
+        },
+        "stage": "corrected",
+        "blank": {
+          "name": "Blanc.xls",
+          "paths": {
+            "relative": "Blanc.xls",
+            "absolute": "C:\\Users\\valentin.legrand\\Desktop\\ATG-DSC-Tool\\Exemple\\ATG-DSC\\Blanc.xls"
+          },
+          "fingerprint": {
+            "size": 1452346,
+            "modified_at": "2026-03-24T12:22:02+00:00",
+            "sha256": "bc3f1d4fb06dcfbc82cac302679bc185d492b7a919fc75ce324976f0bb30b5bd"
+          },
+          "detected_format": "Texte UTF-16 tabulé avec extension .xls",
+          "header_line": 13,
+          "sheet_name": null,
+          "column_mapping": {
+            "time": "Temps",
+            "furnace_temperature": "Température du four",
+            "sample_temperature": "Température de l'échantillon",
+            "tg": "TG",
+            "dtg": null,
+            "heat_flow": "HeatFlow"
+          },
+          "original_columns": [
+            "Index",
+            "Temps",
+            "Température du four",
+            "Température de l'échantillon",
+            "TG",
+            "HeatFlow"
+          ],
+          "original_units": {
+            "Index": "",
+            "Temps": "min",
+            "Température du four": "°C",
+            "Température de l'échantillon": "°C",
+            "TG": "mg",
+            "HeatFlow": "mW"
+          },
+          "time_unit": "min",
+          "description": "Blanc 17 mars 2026-2",
+          "warnings": []
+        },
+        "normalization": {
+          "tg_reference_mode": "first_valid",
+          "heat_flow_reference_mode": "first_valid",
+          "reference_mode": "first_valid",
+          "reference_axis": "time_s",
+          "range_start": null,
+          "range_end": null,
+          "tg_representation": "raw",
+          "dtg_unit_mode": "source",
+          "dtg_representation": "raw",
+          "heat_flow_representation": "raw",
+          "normalization_enabled": false,
+          "reference_mass_mg": null,
+          "reference_name": "",
+          "use_initial_mass_as_reference": false,
+          "calculate_dtg_if_missing": false,
+          "dtg_smoothing_points": 1,
+          "experiments": []
+        },
+        "correction": {
+          "tg_method": "direct",
+          "interpolation_axis": "time_s"
+        },
+        "thermal_program": {
+          "enabled": true,
+          "temperature_unit": "°C",
+          "t0_min": 0.0,
+          "initial_temperature_c": 20.0,
+          "segments": [
+            {
+              "type": "hold",
+              "duration_min": 15.0
+            },
+            {
+              "type": "heating",
+              "target_temperature_c": 700.0,
+              "rate_c_per_min": 10.0
+            },
+            {
+              "type": "hold",
+              "duration_min": 19.99999999999998
+            },
+            {
+              "type": "cooling",
+              "target_temperature_c": 20.0,
+              "rate_c_per_min": 20.0
+            },
+            {
+              "type": "hold",
+              "duration_min": 0.4999999999999998
+            }
+          ]
+        }
+      }
+    },
+    "signal": "tg",
+    "signals": [
+      "tg",
+      "heat_flow"
+    ],
+    "representations": {
+      "tg": "delta_m_mg",
+      "dtg": "raw",
+      "heat_flow": "raw"
+    },
+    "dtg_unit_mode": "source",
+    "x_axis": "sample_temperature",
+    "domain_mode": "union",
+    "x_limits": [
+      null,
+      null
+    ],
+    "y_limits": [
+      null,
+      null
+    ],
+    "limits": {
+      "x": [
+        null,
+        null
+      ],
+      "tg": [
+        null,
+        null
+      ],
+      "dtg": [
+        null,
+        null
+      ],
+      "heat_flow": [
+        null,
+        null
+      ]
+    },
+    "title": "",
+    "grid": true,
+    "align_zeros": true,
+    "show_offsets_in_legend": false,
+    "statistics": {
+      "enabled": false,
+      "groups": [],
+      "display_mode": "mean_band",
+      "grid_method": "auto",
+      "manual_points": 200,
+      "show_mean": true,
+      "show_band": true,
+      "show_individual": false
+    },
+    "colors": {
+      "CaCO3(20,8mg).txt": "#1F77B4",
+      "MgCl2.6H2O.xls": "#5555FF"
+    },
+    "graph": {
+      "title": "",
+      "axis_labels": {
+        "x": "",
+        "tg": "",
+        "dtg": "",
+        "heat_flow": ""
+      },
+      "axis_scales": {
+        "x": "linear",
+        "tg": "linear",
+        "dtg": "linear",
+        "heat_flow": "linear"
+      },
+      "major_tick_steps": {
+        "x": null,
+        "tg": null,
+        "dtg": null,
+        "heat_flow": null
+      },
+      "minor_tick_subdivisions": {
+        "x": 1,
+        "tg": 0,
+        "dtg": 0,
+        "heat_flow": 0
+      },
+      "tick_formats": {
+        "x": "auto",
+        "tg": "auto",
+        "dtg": "auto",
+        "heat_flow": "auto"
+      },
+      "tick_decimals": {
+        "x": 2,
+        "tg": 2,
+        "dtg": 2,
+        "heat_flow": 2
+      },
+      "x_tick_rotation": 0,
+      "grid_major": true,
+      "grid_minor": false,
+      "grid_axis": "both",
+      "legend_visible": true,
+      "legend_position": "lower right",
+      "curve_styles": {},
+      "reference_lines": [],
+      "annotations": [],
+      "axis_spacing": {
+        "tg_right_position": 1.0,
+        "dtg_right_position": 1.12,
+        "label_pads": {
+          "x": 4.0,
+          "tg": 4.0,
+          "dtg": 4.0,
+          "heat_flow": 4.0
+        },
+        "tick_pads": {
+          "x": 3.5,
+          "tg": 3.5,
+          "dtg": 3.5,
+          "heat_flow": 3.5
+        }
+      },
+      "fonts": {
+        "general": {
+          "family": "",
+          "size": 10.0,
+          "weight": "normal",
+          "style": "normal"
+        },
+        "overrides": {}
+      }
+    }
+  },
+  "analysis_zones": [
+    {
+      "id": "259778d2-ad54-46b4-8113-0247a6ab9b9b",
+      "name": "Zone 1",
+      "axis_type": "sample_temperature",
+      "start": 327.06165232556987,
+      "end": 399.30007234059616,
+      "baseline_method": "none",
+      "baseline_value": null,
+      "baseline_representation": null,
+      "baseline_unit": null,
+      "color": null,
+      "line_width": null,
+      "opacity": null,
+      "show_baseline": true,
+      "positive_area_color": null,
+      "negative_area_color": null,
+      "baseline_color": null
+    },
+    {
+      "id": "649b1d29-31f9-4e37-8646-78c232862963",
+      "name": "Zone 2",
+      "axis_type": "sample_temperature",
+      "start": 462.50868985374416,
+      "end": 517.8914785319309,
+      "baseline_method": "constant",
+      "baseline_value": -10.0,
+      "baseline_representation": "raw",
+      "baseline_unit": "mW",
+      "color": null,
+      "line_width": null,
+      "opacity": null,
+      "show_baseline": true,
+      "positive_area_color": null,
+      "negative_area_color": null,
+      "baseline_color": null
+    }
+  ],
+  "stoichiometry": {
+    "version": 1,
+    "current_index": null,
+    "equations": [],
+    "display": {
+      "mass_unit": "mg",
+      "amount_unit": "mol",
+      "notation": "scientific"
+    }
+  },
+  "processing_history": [],
+  "warnings": []
+}

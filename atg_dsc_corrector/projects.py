@@ -14,6 +14,7 @@ from typing import Any, Callable, Literal, Mapping
 
 from . import __version__
 from .analysis_zones import AnalysisZone
+from .curve_styles import LINE_STYLES, MARKERS
 from .models import (
     CANONICAL_FIELDS,
     ExperimentData,
@@ -28,8 +29,10 @@ from .normalization import (
     REFERENCE_AXES,
     REFERENCE_MODES,
     TG_REPRESENTATIONS,
+    validate_dtg_smoothing_points,
 )
 from .readers import load_experiment
+from .thermal_program import validate_thermal_program
 
 
 SCHEMA_VERSION = 1
@@ -41,7 +44,7 @@ SUPPORTED_CORRECTION_AXES = {
 }
 SUPPORTED_DISPLAY_AXES = {
     "time_s",
-    "time_min",
+    "time_min", "time_h",
     "furnace_temperature",
     "sample_temperature",
 }
@@ -56,6 +59,8 @@ GRAPH_LEGEND_POSITIONS = {
     "upper right",
     "lower left",
     "lower right",
+    "upper center", "lower center", "center left", "center right", "center",
+    "outside left", "outside top", "outside bottom", "manual",
     "outside",
 }
 GRAPH_FONT_TARGETS = {"title", "axes", "ticks", "legend", "annotations"}
@@ -363,6 +368,77 @@ def default_display_settings() -> dict[str, Any]:
     }
 
 
+def default_legend_style() -> dict[str, Any]:
+    return {
+        "frame": "rounded", "fill_color": "#FFFFFF", "fill_alpha": 0.8,
+        "border_color": "#CCCCCC", "border_width": 0.8,
+        "margins": {side: 40.0 for side in ("left", "right", "top", "bottom")},
+        "wrap": False, "wrap_width": 40,
+        "unit": "axes_percent", "anchor": "upper right", "anchor_frame": True,
+        "x": 99.0, "y": 99.0, "lock_x": False, "lock_y": False,
+        "text_color": "#000000", "rotation": 0.0, "line_spacing": None,
+        "tab_width": 8, "white_out": False, "align_columns": True, "columns": 1,
+        "alignment": "left", "verbatim": False, "underline": False, "entries": {},
+    }
+
+
+def _validate_legend_style(value: Any) -> dict[str, Any]:
+    defaults = default_legend_style()
+    data = _require_mapping(value, "legend_style")
+    checked = dict(defaults)
+    for key, choices in {
+        "frame": {"none", "box", "rounded"}, "unit": {"axes_percent", "figure_percent"},
+        "anchor": GRAPH_LEGEND_POSITIONS - {"best", "outside", "outside left", "outside top", "outside bottom", "manual"},
+        "alignment": {"left", "center", "right"},
+    }.items():
+        item = _require_string(data.get(key, defaults[key]), f"legend_style.{key}")
+        if item not in choices:
+            raise ProjectValidationError("Un réglage de légende est invalide.")
+        checked[key] = item
+    for key in ("wrap", "anchor_frame", "lock_x", "lock_y", "white_out", "align_columns", "verbatim", "underline"):
+        item = data.get(key, defaults[key])
+        if not isinstance(item, bool):
+            raise ProjectValidationError("Un réglage de légende est invalide.")
+        checked[key] = item
+    for key, low, high in (("fill_alpha", 0, 1), ("border_width", 0, 20), ("x", -1000, 1000),
+                           ("y", -1000, 1000), ("rotation", -360, 360), ("line_spacing", 25, 500),
+                           ("wrap_width", 5, 500), ("tab_width", 1, 32), ("columns", 1, 20)):
+        item = data.get(key, defaults[key])
+        if key == "line_spacing" and item is None:
+            checked[key] = None
+            continue
+        if isinstance(item, bool) or not isinstance(item, (float, int)) or not math.isfinite(item) or not low <= item <= high:
+            raise ProjectValidationError("Un réglage de légende est invalide.")
+        if key in {"wrap_width", "tab_width", "columns"}:
+            if int(item) != item:
+                raise ProjectValidationError("Un réglage de légende est invalide.")
+            item = int(item)
+        checked[key] = item
+    for key in ("fill_color", "border_color", "text_color"):
+        item = data.get(key, defaults[key])
+        checked[key] = "" if key == "fill_color" and item == "" else _validate_graph_color(item, f"legend_style.{key}")
+    margins = _require_mapping(data.get("margins", defaults["margins"]), "legend_style.margins")
+    checked["margins"] = {}
+    for side in defaults["margins"]:
+        item = _optional_finite_number(margins.get(side, 40.0), f"legend_style.margins.{side}")
+        if item is None or not 0 <= item <= 500:
+            raise ProjectValidationError("Un réglage de légende est invalide.")
+        checked["margins"][side] = item
+    entries = _require_mapping(data.get("entries", {}), "legend_style.entries")
+    checked["entries"] = {_require_string(key, "legend_style.entry"): _require_string(text, "legend_style.text", allow_empty=True)
+                          for key, text in entries.items()}
+    return checked
+
+
+def default_axis_appearance(role: str) -> dict[str, Any]:
+    return {
+        "visible": True, "line_visible": True, "color": None, "width": 0.8,
+        "position": "auto", "arrow": "none", "labels_visible": role != "x_top",
+        "major": {"visible": role != "x_top", "direction": "out", "length": None, "width": None, "color": None},
+        "minor": {"visible": role != "x_top", "direction": "out", "length": None, "width": None, "color": None},
+    }
+
+
 def default_graph_settings(
     *, title: str = "", grid_major: bool = True
 ) -> dict[str, Any]:
@@ -378,8 +454,15 @@ def default_graph_settings(
         "grid_major": grid_major,
         "grid_minor": False,
         "grid_axis": "both",
+        "grid_styles": {
+            "major": {"color": None, "line_style": "-", "line_width": 0.7},
+            "minor": {"color": None, "line_style": ":", "line_width": 0.5},
+        },
+        "axis_appearance": {role: default_axis_appearance(role) for role in (*GRAPH_AXES, "x_top", "thermal_program")},
+        "layout_margins": None,
         "legend_visible": True,
         "legend_position": "best",
+        "legend_style": default_legend_style(),
         "curve_styles": {},
         "reference_lines": [],
         "annotations": [],
@@ -396,6 +479,8 @@ def default_graph_settings(
 def default_comparison_settings() -> dict[str, Any]:
     return {
         "entries": {},
+        "mean_styles": {},
+        "stacking": {"signal": "tg", "spacing": None},
         "signal": "tg",
         "signals": ["tg"],
         "representations": {
@@ -450,6 +535,7 @@ def default_normalization_settings() -> dict[str, Any]:
         "reference_name": "",
         "use_initial_mass_as_reference": False,
         "calculate_dtg_if_missing": False,
+        "dtg_smoothing_points": 1,
         "experiments": [],
     }
 
@@ -517,7 +603,7 @@ def _validate_normalization(value: Any) -> dict[str, Any]:
         raise ProjectValidationError(
             "La représentation HeatFlow du projet est inconnue."
         )
-    if dtg_unit_mode not in {"source", "per_second", "per_minute"}:
+    if dtg_unit_mode not in {"source", "per_second", "per_minute", "per_hour"}:
         raise ProjectValidationError("L'unité dTG du projet est inconnue.")
     if dtg_representation not in {"raw", "per_mass", "percent"}:
         raise ProjectValidationError("La représentation dTG du projet est inconnue.")
@@ -551,6 +637,10 @@ def _validate_normalization(value: Any) -> dict[str, Any]:
             "Le champ 'normalization.use_initial_mass_as_reference' doit être booléen."
         )
     calculate_dtg = data.get("calculate_dtg_if_missing", False)
+    try:
+        smoothing_points = validate_dtg_smoothing_points(data.get("dtg_smoothing_points", 1))
+    except ValueError as exc:
+        raise ProjectValidationError(str(exc)) from exc
     if not isinstance(calculate_dtg, bool):
         raise ProjectValidationError(
             "Le champ 'normalization.calculate_dtg_if_missing' doit être booléen."
@@ -638,6 +728,7 @@ def _validate_normalization(value: Any) -> dict[str, Any]:
         "reference_name": reference_name,
         "use_initial_mass_as_reference": use_initial_mass,
         "calculate_dtg_if_missing": calculate_dtg,
+        "dtg_smoothing_points": smoothing_points,
         "experiments": experiments,
     }
 
@@ -674,6 +765,71 @@ def _validate_graph_color(value: Any, field_name: str) -> str:
             f"La couleur de '{field_name}' doit utiliser le format #RRGGBB."
         )
     return color.upper()
+
+
+def _validate_graph_appearance(data: Mapping[str, Any]) -> dict[str, Any]:
+    defaults = default_graph_settings()
+
+    def number(value, low, high, optional=False):
+        checked = _optional_finite_number(value, "graph.appearance")
+        if checked is None and optional:
+            return None
+        if checked is None or not low <= checked <= high:
+            raise ProjectValidationError("Un réglage des axes ou de la grille est invalide.")
+        return checked
+
+    def color(value):
+        return None if value is None else _validate_graph_color(value, "graph.appearance.color")
+
+    def flag(value):
+        if not isinstance(value, bool):
+            raise ProjectValidationError("Un réglage des axes ou de la grille est invalide.")
+        return value
+
+    grids = _require_mapping(data.get("grid_styles", {}), "graph.grid_styles")
+    _reject_unknown_template_keys(grids, {"major", "minor"}, "graph.grid_styles")
+    grid_styles = {}
+    for kind, default in defaults["grid_styles"].items():
+        style = _require_mapping(grids.get(kind, {}), "graph.grid_styles")
+        _reject_unknown_template_keys(style, set(default), "graph.grid_styles")
+        style = {**default, **style}
+        if style["line_style"] not in ("-", "--", "-.", ":"):
+            raise ProjectValidationError("Un réglage des axes ou de la grille est invalide.")
+        grid_styles[kind] = {"color": color(style["color"]), "line_style": style["line_style"], "line_width": number(style["line_width"], 0.1, 10)}
+    appearances = _require_mapping(data.get("axis_appearance", {}), "graph.axis_appearance")
+    _reject_unknown_template_keys(appearances, set(defaults["axis_appearance"]), "graph.axis_appearance")
+    axes = {}
+    for role, default in defaults["axis_appearance"].items():
+        raw = _require_mapping(appearances.get(role, {}), "graph.axis_appearance")
+        _reject_unknown_template_keys(raw, set(default), "graph.axis_appearance")
+        style = {**default, **raw}
+        positions = {"auto", "bottom"} if role == "x" else {"auto", "top"} if role == "x_top" else {"auto", "left", "right"}
+        if style["position"] not in tuple(positions) or style["arrow"] not in ("none", "end", "both"):
+            raise ProjectValidationError("Un réglage des axes ou de la grille est invalide.")
+        for key in ("visible", "line_visible", "labels_visible"):
+            style[key] = flag(style[key])
+        style["width"] = number(style["width"], 0.1, 10)
+        style["color"] = color(style["color"])
+        for kind in ("major", "minor"):
+            raw_tick = _require_mapping(raw.get(kind, {}), "graph.axis_appearance.ticks")
+            _reject_unknown_template_keys(raw_tick, set(default[kind]), "graph.axis_appearance.ticks")
+            tick = {**default[kind], **raw_tick}
+            if tick["direction"] not in ("in", "out", "inout"):
+                raise ProjectValidationError("Un réglage des axes ou de la grille est invalide.")
+            tick["visible"] = flag(tick["visible"])
+            tick["color"] = color(tick["color"])
+            tick["length"] = number(tick["length"], 0, 30, optional=True)
+            tick["width"] = number(tick["width"], 0.1, 10, optional=True)
+            style[kind] = tick
+        axes[role] = style
+    margins = data.get("layout_margins")
+    if margins is not None:
+        margins = _require_mapping(margins, "graph.layout_margins")
+        _reject_unknown_template_keys(margins, {"left", "right", "top", "bottom"}, "graph.layout_margins")
+        margins = {key: number(margins.get(key), 0, 1) for key in ("left", "right", "bottom", "top")}
+        if margins["left"] >= margins["right"] or margins["bottom"] >= margins["top"]:
+            raise ProjectValidationError("Les marges doivent laisser une surface de tracé positive.")
+    return {"grid_styles": grid_styles, "axis_appearance": axes, "layout_margins": margins}
 
 
 def _validate_graph_settings(
@@ -796,8 +952,8 @@ def _validate_graph_settings(
         line_width = style.get("line_width", 1.4)
         markevery = style.get("markevery")
         if (
-            line_style not in {"-", "--", "-.", ":"}
-            or marker not in {"", "o", "s", "^", "x"}
+            not isinstance(line_style, str) or line_style not in LINE_STYLES
+            or not isinstance(marker, str) or marker not in MARKERS
             or not isinstance(line_width, (int, float))
             or isinstance(line_width, bool)
             or not math.isfinite(float(line_width))
@@ -1016,8 +1172,10 @@ def _validate_graph_settings(
         "grid_major": grid_major,
         "grid_minor": grid_minor,
         "grid_axis": grid_axis,
+        **_validate_graph_appearance(data),
         "legend_visible": legend_visible,
         "legend_position": legend_position,
+        "legend_style": _validate_legend_style(data.get("legend_style", default_legend_style())),
         "curve_styles": styles,
         "reference_lines": reference_lines,
         "annotations": annotations,
@@ -1046,6 +1204,11 @@ def _reject_unknown_template_keys(
 def _validate_graph_template_whitelist(graph: Mapping[str, Any]) -> None:
     defaults = default_graph_settings()
     _reject_unknown_template_keys(graph, set(defaults), "template.graph")
+    legend = graph.get("legend_style")
+    if isinstance(legend, Mapping):
+        _reject_unknown_template_keys(legend, set(default_legend_style()), "template.graph.legend_style")
+        if isinstance(legend.get("margins"), Mapping):
+            _reject_unknown_template_keys(legend["margins"], {"left", "right", "top", "bottom"}, "template.graph.legend_style.margins")
     for name in (
         "axis_labels", "axis_scales", "major_tick_steps", "minor_tick_subdivisions",
         "tick_formats", "tick_decimals",
@@ -1229,6 +1392,35 @@ def _validate_display(value: Any) -> dict[str, Any]:
     }
 
 
+def _validate_signal_settings(value: Any) -> dict[str, dict[str, Any]]:
+    data = _require_mapping(value, "comparison.entries.signal_settings")
+    style_fields = {"color", "line_style", "line_width", "marker", "markevery"}
+    styles = {}
+    for signal, raw in data.items():
+        item = _require_mapping(raw, f"signal_settings.{signal}")
+        if signal not in SUPPORTED_SIGNALS or set(item) - (style_fields | {"visible", "y_offset", "legend_name"}):
+            raise ProjectValidationError("Les réglages du signal sont invalides.")
+        styles[signal] = {"color": "#000000", **{key: val for key, val in item.items() if key in style_fields}}
+    validated = _validate_graph_settings({"curve_styles": styles}, "signal_settings", defaults=default_graph_settings())["curve_styles"]
+    result = {}
+    for signal, item in data.items():
+        checked = {key: validated[signal][key] for key in item if key in style_fields}
+        if "visible" in item:
+            if not isinstance(item["visible"], bool):
+                raise ProjectValidationError("La visibilité du signal doit être booléenne.")
+            checked["visible"] = item["visible"]
+        if "y_offset" in item:
+            checked["y_offset"] = _optional_finite_number(item["y_offset"], "signal_settings.y_offset")
+            if checked["y_offset"] is None:
+                raise ProjectValidationError("Le décalage du signal doit être un nombre fini.")
+        if "legend_name" in item:
+            checked["legend_name"] = _require_string(item["legend_name"], "signal_settings.legend_name").strip()
+            if not checked["legend_name"]:
+                raise ProjectValidationError("La légende du signal ne peut pas être vide.")
+        result[signal] = checked
+    return result
+
+
 def _validate_comparison(value: Any) -> dict[str, Any]:
     if value is None:
         return default_comparison_settings()
@@ -1270,6 +1462,8 @@ def _validate_comparison(value: Any) -> dict[str, Any]:
             "markevery": item_data.get("markevery"),
             "y_offset": item_data.get("y_offset", 0.0),
         }
+        if "signal_settings" in item_data:
+            checked_entries[key]["signal_settings"] = _validate_signal_settings(item_data["signal_settings"])
         if "stage" in item_data:
             stage = _require_string(
                 item_data["stage"], f"comparison.entries.{key}.stage"
@@ -1279,6 +1473,10 @@ def _validate_comparison(value: Any) -> dict[str, Any]:
                     "La représentation d'une courbe de comparaison est inconnue."
                 )
             checked_entries[key]["stage"] = stage
+        if "show_subtraction" in item_data:
+            if not isinstance(item_data["show_subtraction"], bool):
+                raise ProjectValidationError("comparison.entries.show_subtraction doit être booléen.")
+            checked_entries[key]["show_subtraction"] = item_data["show_subtraction"]
         if "blank" in item_data:
             checked_entries[key]["blank"] = (
                 None
@@ -1295,12 +1493,21 @@ def _validate_comparison(value: Any) -> dict[str, Any]:
             checked_entries[key]["normalization"] = _validate_normalization(
                 item_data["normalization"]
             )
+        if "thermal_program" in item_data:
+            try:
+                checked_entries[key]["thermal_program"] = validate_thermal_program(
+                    item_data["thermal_program"]
+                )
+            except ValueError as exc:
+                raise ProjectValidationError(str(exc)) from exc
         if (
             not isinstance(checked_entries[key]["selected"], bool)
             or not isinstance(checked_entries[key]["visible"], bool)
             or not isinstance(checked_entries[key]["order"], int)
-            or checked_entries[key]["line_style"] not in {"-", "--", ":", "-."}
-            or checked_entries[key]["marker"] not in {"", "o", "s", "^", "x"}
+            or not isinstance(checked_entries[key]["line_style"], str)
+            or checked_entries[key]["line_style"] not in LINE_STYLES
+            or not isinstance(checked_entries[key]["marker"], str)
+            or checked_entries[key]["marker"] not in MARKERS
             or not isinstance(checked_entries[key]["line_width"], (int, float))
             or isinstance(checked_entries[key]["line_width"], bool)
             or not math.isfinite(float(checked_entries[key]["line_width"]))
@@ -1386,7 +1593,7 @@ def _validate_comparison(value: Any) -> dict[str, Any]:
     )
     x_axis = _require_string(data.get("x_axis", "time_s"), "comparison.x_axis")
     if (
-        dtg_unit_mode not in {"source", "per_second", "per_minute"}
+        dtg_unit_mode not in {"source", "per_second", "per_minute", "per_hour"}
         or x_axis not in SUPPORTED_DISPLAY_AXES
     ):
         raise ProjectValidationError("Les axes ou unités de comparaison sont inconnus.")
@@ -1412,8 +1619,16 @@ def _validate_comparison(value: Any) -> dict[str, Any]:
         limits["x"] = legacy_x_limits
         limits[signal] = legacy_y_limits
     _validate_log_limits(limits, graph)
+    mean_styles = _validate_signal_settings(data.get("mean_styles", {}))
+    stacking = _require_mapping(data.get("stacking", defaults["stacking"]), "comparison.stacking")
+    stack_signal = _require_string(stacking.get("signal", "tg"), "comparison.stacking.signal")
+    stack_spacing = _optional_finite_number(stacking.get("spacing"), "comparison.stacking.spacing")
+    if stack_signal not in SUPPORTED_SIGNALS or (stack_spacing is not None and not 0 <= stack_spacing <= 1e12):
+        raise ProjectValidationError("L'écart d'empilement doit être compris entre 0 et 10¹².")
     return {
         "entries": checked_entries,
+        "mean_styles": mean_styles,
+        "stacking": {"signal": stack_signal, "spacing": stack_spacing},
         "signal": signal,
         "signals": signals,
         "representations": {"tg": tg, "dtg": dtg, "heat_flow": heat},
@@ -1464,6 +1679,13 @@ def _validate_analysis_zones(value: Any) -> list[AnalysisZone]:
         try:
             zone = AnalysisZone(
                 identifier=identifier,
+                color=data.get("color"),
+                line_width=data.get("line_width"),
+                opacity=data.get("opacity"),
+                show_baseline=data.get("show_baseline", True),
+                positive_area_color=data.get("positive_area_color"),
+                negative_area_color=data.get("negative_area_color"),
+                baseline_color=data.get("baseline_color"),
                 name=_require_string(data.get("name"), f"{field_name}.name"),
                 axis_type=_require_string(
                     data.get("axis_type"), f"{field_name}.axis_type"

@@ -8,6 +8,7 @@ from PyInstaller.utils.win32.versioninfo import (
 
 
 datas = collect_data_files("matplotlib") + [
+    ("atg_dsc_corrector/resources/thermalcurve.ico", "atg_dsc_corrector/resources"),
     ("atg_dsc_corrector/resources/mendeleev/v0.20.0", "atg_dsc_corrector/resources/mendeleev/v0.20.0"),
 ]
 
@@ -16,7 +17,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=datas,
-    hiddenimports=["xlrd", "openpyxl"],
+    hiddenimports=["xlrd", "openpyxl", "xlsxwriter"],
     hookspath=["packaging/hooks"],
     hooksconfig={"matplotlib": {"backends": ["QtAgg", "Agg", "svg", "pdf"]}},
     runtime_hooks=[],
@@ -24,6 +25,8 @@ a = Analysis(
     noarchive=False,
     optimize=1,
 )
+assert any(entry[0] == "xlsxwriter.workbook" for entry in a.pure), \
+    "XlsxWriter must be bundled for fast XLSX exports"
 assert not any("virtualkeyboard" in entry[0].lower() or "qt6pdf" in entry[0].lower()
                for entry in a.binaries), "Unexpected Qt components in this release"
 assert not any("codex-runtimes" in entry[1].lower() for entry in a.binaries), \
@@ -36,6 +39,7 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name="ThermalCurve",
+    icon="atg_dsc_corrector/resources/thermalcurve.ico",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -49,13 +53,13 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     version=VSVersionInfo(
-        ffi=FixedFileInfo(filevers=(1, 0, 0, 0), prodvers=(1, 0, 0, 0), fileType=1),
+        ffi=FixedFileInfo(filevers=(1, 0, 1, 0), prodvers=(1, 0, 1, 0), fileType=1),
         kids=[
             StringFileInfo([StringTable("040904B0", [
                 StringStruct("ProductName", "ThermalCurve"),
                 StringStruct("FileDescription", "ThermalCurve - Analyse thermique / Thermal analysis"),
-                StringStruct("FileVersion", "1.0.0"),
-                StringStruct("ProductVersion", "1.0.0"),
+                StringStruct("FileVersion", "1.0.1"),
+                StringStruct("ProductVersion", "1.0.1"),
                 StringStruct("LegalCopyright", "© 2026 Valentin Legrand"),
                 StringStruct("OriginalFilename", "ThermalCurve.exe"),
             ])]),

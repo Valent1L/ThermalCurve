@@ -2,24 +2,23 @@
 
 from __future__ import annotations
 
-import csv
 from datetime import datetime, timezone
-from itertools import zip_longest
-import json
-import math
 import os
 from pathlib import Path
 import re
 from typing import Any, Iterable
 
 import numpy as np
+import pandas as pd
+
+from .i18n import tr as _t
+from .workbook_export import source_blocks, write_workbook
 
 from . import APP_NAME
 from .comparison import ComparisonCurve, ComparisonOptions, ComparisonPlot
 from .comparison_statistics import GroupStatistics
 from .exporters import (
     ExportError,
-    _publish_pair,
     _source_reference,
     _temporary_path,
     _validate_destinations,
@@ -71,7 +70,7 @@ def export_visible_curves(
     statistics_settings: dict[str, Any] | None = None,
     protected_paths: Iterable[str | Path] = (),
     overwrite: bool = False,
-) -> tuple[Path, Path]:
+) -> Path:
     """Exporte les signaux cochés, avec leurs grilles propres et sans décalage visuel."""
     curves = list(curves)
     statistics = [item for item in statistics if item.signal in options.signals]
@@ -110,10 +109,9 @@ def export_visible_curves(
         "statistics": statistics_settings,
         "groups": groups,
     }
-    return _write_table_and_metadata(
-        destination, file_format, header, zip_longest(*columns), metadata,
-        protected_paths=(*_curve_source_paths(curves), *protected_paths),
-        overwrite=overwrite,
+    return _write_comparison_workbook(
+        destination, file_format, header, columns, metadata, curves,
+        protected_paths=protected_paths, overwrite=overwrite,
     )
 
 
@@ -177,6 +175,7 @@ def _visible_columns(
                 else "Exclue du tracé"
             ),
             "warnings": warnings,
+            "signal_settings": curve.signal_settings,
             "visual_offset": curve.y_offset,
             "style": {
                 "line_style": curve.line_style, "line_width": curve.line_width,
@@ -197,7 +196,7 @@ def export_group_statistics(
     curves: Iterable[ComparisonCurve] = (),
     protected_paths: Iterable[str | Path] = (),
     overwrite: bool = False,
-) -> tuple[Path, Path]:
+) -> Path:
     """Exporte moyenne, écart-type et effectif des signaux cochés, sans recalcul."""
     curves = list(curves)
     header, columns, groups = _statistics_columns(statistics, options, curves)
@@ -210,10 +209,9 @@ def export_group_statistics(
         "curves": [_curve_provenance(curve) for curve in curves],
         "groups": groups,
     }
-    return _write_table_and_metadata(
-        destination, file_format, header, zip_longest(*columns), metadata,
-        protected_paths=(*_curve_source_paths(curves), *protected_paths),
-        overwrite=overwrite,
+    return _write_comparison_workbook(
+        destination, file_format, header, columns, metadata, curves,
+        protected_paths=protected_paths, overwrite=overwrite,
     )
 
 
@@ -242,8 +240,8 @@ def _statistics_columns(
         prefix = f"{item.group.name} [{group_number}]"
         group_header = [
             f"{prefix} - {signal_header} - {_x_header(plot_options.x_axis, curve)}",
-            f"{prefix} - Moyenne {signal_header}",
-            f"{prefix} - Écart-type {signal_header}",
+            f"{prefix} - {_t('Moyenne')} {signal_header}",
+            f"{prefix} - {_t('Écart-type')} {signal_header}",
             f"{prefix} - n {_signal_header(item.signal, '')}",
         ]
         plot_exclusion = (
@@ -305,60 +303,45 @@ def export_figure(
     return target
 
 
-def _write_table_and_metadata(
-    destination: str | Path, file_format: str, header: list[str], rows: Iterable[Iterable[object | None]],
-    metadata: dict[str, Any], *, protected_paths: Iterable[str | Path], overwrite: bool,
-) -> tuple[Path, Path]:
-    kind = _format(file_format)
-    if kind not in {"csv", "tsv"}:
-        raise ComparisonExportError("Le format de données doit être CSV ou TSV.")
+def _write_comparison_workbook(destination, file_format, header, columns, metadata, curves,
+                               *, protected_paths, overwrite):
     if not header:
         raise ComparisonExportError("Aucune donnée compatible avec les signaux cochés à exporter.")
-    target = Path(destination).with_suffix(f".{kind}")
-    metadata_target = target.with_suffix(".json")
+    blocks = []
+    offset = 0
+    for item in (*metadata.get("curves", ()), *metadata.get("groups", ())):
+        names = item.get("columns", [])
+        if not names:
+            continue
+        width = len(names)
+        # The title identifies the experiment/group once, above its data block.
+        title = item.get("legend_name", item.get("name", ""))
+        labels = [re.sub(rf"^{re.escape(title)} \[\d+\] - ", "", name, count=1) for name in names]
+        if "signal" in item:
+            labels[0] = labels[0].removeprefix(f"{_signal_header(item['signal'], item['unit'])} - ")
+        frame = pd.DataFrame({name: pd.Series(values) for name, values in
+                              zip(labels, columns[offset:offset + width], strict=True)})
+        block_metadata = {**item, "source_path": item.get("experiment", {}).get("source_path", "")}
+        blocks.append((item.get("original_name", item.get("name", "")), frame, block_metadata))
+        offset += width
+    if blocks:
+        name, frame, block_metadata = blocks[0]
+        blocks[0] = (name, frame, {
+            **block_metadata,
+            "application": {"name": APP_NAME, "version": application_version()},
+            "export": {"created_utc": datetime.now(timezone.utc).isoformat()},
+            **metadata,
+        })
+    sources = [curve.result.experiment for curve in curves if curve.visible]
+    blanks = [curve.result.blank for curve in curves if curve.visible]
     try:
-        _validate_destinations(
-            (target, metadata_target), protected_paths, overwrite=overwrite
-        )
+        return write_workbook(destination, file_format, [
+            ("Données corrigées", blocks),
+            ("Données initiales", source_blocks(sources)),
+            ("Données du blanc", source_blocks(blanks)),
+        ], protected_paths=(*_curve_source_paths(curves), *protected_paths), overwrite=overwrite)
     except ExportError as exc:
         raise ComparisonExportError(str(exc)) from exc
-    json_text = json.dumps(
-        _json_safe({
-            "application": {
-                "name": APP_NAME,
-                "version": application_version(),
-                "schema_version": 1,
-            },
-            "export": {
-                "created_utc": datetime.now(timezone.utc).isoformat(),
-                "data_file": target.name,
-            },
-            **metadata,
-        }), ensure_ascii=False, indent=2, allow_nan=False
-    ) + "\n"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    delimiter, decimal = (";", ",") if kind == "csv" else ("\t", ".")
-    table_temp = _temporary_path(target)
-    try:
-        json_temp = _temporary_path(metadata_target)
-    except OSError:
-        table_temp.unlink(missing_ok=True)
-        raise
-    try:
-        with table_temp.open("w", encoding="utf-8-sig" if kind == "csv" else "utf-8", newline="") as stream:
-            writer = csv.writer(stream, delimiter=delimiter, lineterminator="\n")
-            writer.writerow(header)
-            for row in rows:
-                writer.writerow([_cell(value, decimal) for value in row])
-            stream.flush(); os.fsync(stream.fileno())
-        with json_temp.open("w", encoding="utf-8", newline="\n") as stream:
-            stream.write(json_text); stream.flush(); os.fsync(stream.fileno())
-        _publish_pair(table_temp, json_temp, target, metadata_target)
-    except (OSError, ExportError) as exc:
-        raise ComparisonExportError(f"Impossible d'exporter les données : {exc}") from exc
-    finally:
-        table_temp.unlink(missing_ok=True); json_temp.unlink(missing_ok=True)
-    return target, metadata_target
 
 
 def _target(
@@ -389,29 +372,6 @@ def _format(value: str) -> str:
     return value.lower().lstrip(".")
 
 
-def _cell(value: object | None, decimal: str) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, (float, np.floating)):
-        if not math.isfinite(float(value)):
-            return ""
-        text = format(float(value), ".15g")
-        return text.replace(".", decimal) if decimal == "," else text
-    return str(value)
-
-
-def _json_safe(value: Any) -> Any:
-    if isinstance(value, (float, np.floating)):
-        return float(value) if math.isfinite(float(value)) else None
-    if isinstance(value, np.integer):
-        return int(value)
-    if isinstance(value, dict):
-        return {str(key): _json_safe(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_safe(item) for item in value]
-    return value
-
-
 def _representation(
     options: ComparisonOptions, curve: ComparisonCurve | None = None,
     *, signal: str,
@@ -430,7 +390,7 @@ def _x_header(
     axis: str, curve: ComparisonCurve | None = None,
 ) -> str:
     label = X_LABELS[axis]
-    if curve is None or axis in {"time_s", "time_min"}:
+    if curve is None or axis in {"time_s", "time_min", "time_h"}:
         return label
     name = label.rsplit(" (", 1)[0]
     unit = curve.result.experiment.unit_for(axis)

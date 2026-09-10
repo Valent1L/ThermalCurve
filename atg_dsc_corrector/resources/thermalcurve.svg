@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>ThermalCurve</title>
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="#153446"/>
+  <path d="M45 49V210H215" fill="none" stroke="#E9F1F5" stroke-width="9" stroke-linecap="round" opacity=".7"/>
+  <path d="M48 69H80C108 69 99 120 126 120H151C177 120 171 154 194 154H215"
+        fill="none" stroke="#55DDD1" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M49 187H120C145 187 139 87 163 87S178 187 204 187H216"
+        fill="none" stroke="#FFB65B" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
