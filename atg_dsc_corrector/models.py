@@ -54,9 +54,17 @@ class SourceFingerprint:
 
 
 def sha256_file(path: str | Path) -> str:
+    from .input_safety import MAX_INPUT_BYTES, DataReadError, check_input_size
+    from .i18n import tr
+
+    check_input_size(path)
     digest = hashlib.sha256()
+    size = 0
     with Path(path).open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            size += len(chunk)
+            if size > MAX_INPUT_BYTES:
+                raise DataReadError(tr("Le fichier a dépassé la limite de lecture : {path}", path=str(path)))
             digest.update(chunk)
     return digest.hexdigest()
 

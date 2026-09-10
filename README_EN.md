@@ -99,9 +99,10 @@ pandas 3.0.3        data tables
 openpyxl 3.1.5      XLSX reading and compatibility export
 XlsxWriter 3.2.9    fast XLSX writing
 xlrd 2.0.2          XLS reader
+defusedxml 0.7.1    XML/XLSX import protection
 ```
 
-pip also installs their dependencies. requirements.txt pins these seven versions.
+pip also installs their dependencies. requirements.txt pins these eight versions.
 
 A .venv is recommended to isolate these libraries from other applications.
 PowerShell activation is unnecessary. The environment is optional: a compatible
@@ -204,6 +205,24 @@ min      °C                     mg    mW
 Keep units in your files. Missing temperature cannot be used as an axis; missing
 heat flow is not invented. Read warnings about ignored columns or incompatible
 units. Processing does not rewrite original input files.
+
+### Imported file protection
+
+When opening a project, sources are searched automatically on local drives.
+Network paths (UNC or mapped drives), devices and symbolic links/junctions are
+rejected before automatic access. To share a project, keep local sources beside
+the project while preserving relative paths. A network file explicitly selected
+by the user can still be imported; a local copy is recommended for reopening the project.
+
+Imports are limited to 100 MiB per file and projects to 10 MiB.
+A table can contain at most 1,000,000 rows, 4,096 columns and 5,000,000 cells
+(rows × columns, including empty cells). XLSX expanded contents are limited to
+256 MiB overall, 64 MiB per part and 10,000 parts; XML depth is limited to 64 levels.
+Text files are limited to 1,000,000 lines and 1,048,576 characters per line.
+Exceeding a limit causes an explicit rejection, without truncating or changing
+source data. Calculations and accepted data precision remain unchanged.
+The defusedxml XML protection is included in the executable and required for
+Python installations. These safeguards do not remove the SmartScreen warning.
 
 ## 5. Blanks, normalization and signals
 

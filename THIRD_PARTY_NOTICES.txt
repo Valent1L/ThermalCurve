@@ -28,6 +28,7 @@ pandas: BSD-3-Clause.
 openpyxl: MIT. https://openpyxl.readthedocs.io/
 XlsxWriter: BSD-2-Clause. https://xlsxwriter.readthedocs.io/
 xlrd: BSD. https://xlrd.readthedocs.io/
+defusedxml: PSF license. https://pypi.org/project/defusedxml/
 Mendeleev data snapshot v0.20.0: MIT, copyright Lukasz Mentel.
   See licenses/Mendeleev/LICENSE and licenses/Mendeleev/PROVENANCE.md.
   https://github.com/lmmentel/mendeleev

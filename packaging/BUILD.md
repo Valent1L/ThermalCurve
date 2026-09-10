@@ -19,10 +19,12 @@ Sur ton ordinateur actuel, conserve la `.venv` existante. Vérifie les outils :
 ```
 
 La version 1.0.0 a été construite avec Python **3.14.6 x64** et PyInstaller
-**6.21.0**. `requirements.txt` fixe les sept dépendances directes de l'application,
+**6.21.0**. `requirements.txt` fixe les huit dépendances directes de l'application,
 dont XlsxWriter 3.2.9 pour l'export rapide depuis la version 1.0.1.
 Le fichier `.spec` inclut XlsxWriter et refuse la compilation si son module
 d'écriture est absent. La collecte des notices inclut aussi sa licence BSD.
+Le module defusedxml 0.7.1 de protection XML et sa licence PSF sont également
+inclus ; le `.spec` refuse une compilation sans ce module.
 Les dépendances transitives ne sont pas toutes verrouillées : une nouvelle
 installation n'est donc pas nécessairement identique à l'environnement original.
 
@@ -180,11 +182,13 @@ Run these steps in PowerShell at the source project root on Windows x64, where
 Keep the existing `.venv` on the current computer. Check Python, PyInstaller and
 installed dependencies with the first command block in the French section.
 Version 1.0.0 was built with **Python 3.14.6 x64** and **PyInstaller 6.21.0**.
-`requirements.txt` pins the seven direct application dependencies, including
+`requirements.txt` pins the eight direct application dependencies, including
 XlsxWriter 3.2.9 for fast exports since version 1.0.1; transitive
 dependencies are not fully pinned, so a fresh installation may differ.
 The `.spec` includes XlsxWriter and fails the build if its workbook module is
 missing. Notice collection also includes its BSD license.
+The defusedxml 0.7.1 XML protection module and its PSF license are also included;
+the `.spec` rejects a build without this module.
 
 On another computer, install Python 3.14.6 x64, then run:
 

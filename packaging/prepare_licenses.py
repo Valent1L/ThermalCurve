@@ -21,7 +21,7 @@ PACKAGES = (
     "PySide6", "PySide6_Essentials", "PySide6_Addons", "shiboken6", "matplotlib",
     "numpy", "pandas", "openpyxl", "xlsxwriter", "xlrd", "contourpy", "cycler", "fonttools",
     "kiwisolver", "packaging", "pillow", "pyparsing", "python-dateutil", "tzdata",
-    "et-xmlfile", "six", "PyInstaller", "typing_extensions",
+    "et-xmlfile", "six", "PyInstaller", "typing_extensions", "defusedxml",
 )
 
 

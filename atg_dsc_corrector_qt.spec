@@ -17,7 +17,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=datas,
-    hiddenimports=["xlrd", "openpyxl", "xlsxwriter"],
+    hiddenimports=["xlrd", "openpyxl", "xlsxwriter", "defusedxml.ElementTree"],
     hookspath=["packaging/hooks"],
     hooksconfig={"matplotlib": {"backends": ["QtAgg", "Agg", "svg", "pdf"]}},
     runtime_hooks=[],
@@ -27,6 +27,8 @@ a = Analysis(
 )
 assert any(entry[0] == "xlsxwriter.workbook" for entry in a.pure), \
     "XlsxWriter must be bundled for fast XLSX exports"
+assert any(entry[0] == "defusedxml.ElementTree" for entry in a.pure), \
+    "defusedxml must be bundled for protected XLSX imports"
 assert not any("virtualkeyboard" in entry[0].lower() or "qt6pdf" in entry[0].lower()
                for entry in a.binaries), "Unexpected Qt components in this release"
 assert not any("codex-runtimes" in entry[1].lower() for entry in a.binaries), \

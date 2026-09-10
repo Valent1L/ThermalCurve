@@ -16,6 +16,12 @@ from typing import Any, Callable, Iterable, Mapping
 import numpy as np
 import pandas as pd
 
+from .input_safety import (
+    DataReadError, MAX_INPUT_BYTES, MAX_TEXT_LINE_CHARS, MAX_TABLE_ROWS,
+    check_input_size, check_table_size, check_xlsx_archive, read_limited_bytes,
+)
+from .i18n import tr
+
 from .models import (
     CANONICAL_FIELDS,
     ColumnMapping,
@@ -26,14 +32,11 @@ from .models import (
 )
 
 
-class DataReadError(ValueError):
-    """Erreur de format ou d'association empêchant un chargement fiable."""
-
-
 def _load_with_fingerprint(
     source: Path,
     loader: Callable[[], ExperimentData],
 ) -> ExperimentData:
+    check_input_size(source)
     before = capture_source_fingerprint(source)
     experiment = loader()
     after = capture_source_fingerprint(source)
@@ -530,6 +533,7 @@ def detect_file_format(path: str | Path) -> DetectedFileFormat:
 
     source = Path(path)
     try:
+        check_input_size(source)
         with source.open("rb") as stream:
             raw = stream.read(65536)
     except OSError as exc:
@@ -539,6 +543,7 @@ def detect_file_format(path: str | Path) -> DetectedFileFormat:
     if raw.startswith(_XLS_MAGIC):
         return DetectedFileFormat("xls")
     if raw.startswith(b"PK"):
+        check_xlsx_archive(source)
         return DetectedFileFormat("xlsx")
     if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
         try:
@@ -570,6 +575,26 @@ def _first_non_empty_sheet(book: pd.ExcelFile) -> str:
     raise DataReadError("Le classeur ne contient aucune feuille non vide.")
 
 
+def _open_excel(source, detected):
+    check_input_size(source)
+    if detected.kind == 'xlsx':
+        from openpyxl.xml.functions import iterparse as xml_iterparse
+        if xml_iterparse.__module__ != 'defusedxml.common':
+            raise DataReadError(tr("La protection XML est désactivée. Réinstaller les dépendances officielles de ThermalCurve."))
+    book = pd.ExcelFile(source, engine=detected.engine,
+                        engine_kwargs={'on_demand': True} if detected.kind == 'xls' else {})
+    try:
+        if detected.kind == 'xls':
+            for index in range(book.book.nsheets):
+                sheet = book.book.sheet_by_index(index)
+                check_table_size(sheet.nrows, sheet.ncols)
+                book.book.unload_sheet(index)
+    except Exception:
+        book.close()
+        raise
+    return book
+
+
 def _read_spreadsheet_experiment(
     path: str | Path,
     detected: DetectedFileFormat,
@@ -581,16 +606,17 @@ def _read_spreadsheet_experiment(
 
     source = Path(path)
     try:
-        book = pd.ExcelFile(source, engine=detected.engine)
+        book = _open_excel(source, detected)
     except Exception as exc:
         label = "XLS" if detected.kind == "xls" else "XLSX"
         raise DataReadError(f"Impossible d'ouvrir le classeur {label}: {exc}") from exc
 
-    if sheet_name is not None and sheet_name not in book.sheet_names:
-        raise DataReadError(f"Feuille inconnue '{sheet_name}'. Feuilles: {book.sheet_names}")
-    selected = sheet_name or _first_non_empty_sheet(book)
-
-    raw_sheet = pd.read_excel(book, sheet_name=selected, header=None)
+    with book:
+        available_sheets = tuple(book.sheet_names)
+        if sheet_name is not None and sheet_name not in book.sheet_names:
+            raise DataReadError(f"Feuille inconnue '{sheet_name}'. Feuilles: {book.sheet_names}")
+        selected = sheet_name or _first_non_empty_sheet(book)
+        raw_sheet = pd.read_excel(book, sheet_name=selected, header=None)
     rows = raw_sheet.replace({np.nan: None}).values.tolist()
     header_index = _find_header_index(rows)
     raw_headers = _trim_trailing_empty(rows[header_index])
@@ -626,7 +652,7 @@ def _read_spreadsheet_experiment(
             **parser_metadata,
         },
         sheet_name=selected,
-        available_sheets=tuple(book.sheet_names),
+        available_sheets=available_sheets,
         additional_warnings=_non_numeric_row_warnings(rows, header_index),
     )
 
@@ -659,7 +685,15 @@ def _read_text_lines(
     if detected.is_spreadsheet or detected.encoding is None:
         raise DataReadError("Le fichier détecté n'est pas un fichier texte.")
     try:
-        return path.read_bytes().decode(detected.encoding).splitlines(), detected.encoding
+        text = read_limited_bytes(path, MAX_INPUT_BYTES).decode(detected.encoding)
+        lines = []
+        for line in StringIO(text):
+            if len(lines) >= MAX_TABLE_ROWS or len(line) > MAX_TEXT_LINE_CHARS:
+                raise DataReadError(tr("Fichier texte refusé : trop de lignes ou ligne trop longue. Aucune donnée n'a été tronquée."))
+            lines.extend(line.splitlines())
+            if len(lines) > MAX_TABLE_ROWS:
+                raise DataReadError(tr("Fichier texte refusé : trop de lignes ou ligne trop longue. Aucune donnée n'a été tronquée."))
+        return lines, detected.encoding
     except UnicodeError as exc:
         raise DataReadError(
             f"Le fichier n'est pas décodable avec l'encodage détecté {detected.encoding}."
@@ -704,7 +738,14 @@ def _coerce_numeric_columns(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def _rows_from_text(lines: list[str], delimiter: str) -> list[list[str]]:
-    return [next(csv.reader([line], delimiter=delimiter)) for line in lines]
+    rows = []
+    width = 0
+    for line in lines:
+        row = next(csv.reader([line], delimiter=delimiter))
+        width = max(width, len(row))
+        check_table_size(len(rows) + 1, width)
+        rows.append(row)
+    return rows
 
 
 def _find_text_header(lines: list[str]) -> tuple[str, list[list[str]], int]:
@@ -873,11 +914,12 @@ def probe_file(path: str | Path, sheet_name: str | None = None) -> FileProbe:
     detected = detect_file_format(source)
     if detected.is_spreadsheet:
         try:
-            book = pd.ExcelFile(source, engine=detected.engine)
-            if sheet_name is not None and sheet_name not in book.sheet_names:
-                raise DataReadError(f"Feuille inconnue '{sheet_name}'.")
-            selected = sheet_name or _first_non_empty_sheet(book)
-            preview = pd.read_excel(book, sheet_name=selected, header=None, nrows=50)
+            with _open_excel(source, detected) as book:
+                if sheet_name is not None and sheet_name not in book.sheet_names:
+                    raise DataReadError(f"Feuille inconnue '{sheet_name}'.")
+                selected = sheet_name or _first_non_empty_sheet(book)
+                preview = pd.read_excel(book, sheet_name=selected, header=None, nrows=50)
+                sheets = list(book.sheet_names)
         except DataReadError:
             raise
         except Exception as exc:
@@ -888,7 +930,6 @@ def probe_file(path: str | Path, sheet_name: str | None = None) -> FileProbe:
             _trim_trailing_empty(preview_rows[header_index])
         )
         columns = list(schema.columns)
-        sheets = list(book.sheet_names)
     else:
         lines, _ = _read_text_lines(source, detected)
         delimiter, rows, header_index, _data_start, has_units_row = _text_layout(lines)

@@ -1491,3 +1491,19 @@ EN = {"\nBande au début (basse / haute) : {v1:.6g} / {v3:.6g} {v5}\nBande à la
  "La légende n'a pas pu être appliquée. Vérifiez le texte mathématique et les réglages.": 'The legend could not be applied. Check mathematical text and settings.',
  "L'enveloppe de variation combine les bandes aux bornes ; ce n'est ni l'écart-type de Δ ni un intervalle de confiance.": 'The change envelope combines the bands at the endpoints; it is neither the standard deviation of Δ nor a confidence interval.',
 }
+
+# Import safety / Protection des imports.
+EN.update({
+    "Un fichier ordinaire est requis : {path}": "A regular file is required: {path}",
+    "Fichier trop volumineux (limite : {limit} Mio) : {path}": "File too large (limit: {limit} MiB): {path}",
+    "Le fichier a dépassé la limite de lecture : {path}": "The file exceeded the read limit: {path}",
+    "Tableau trop volumineux : maximum {rows} lignes, {columns} colonnes et {cells} cellules. Aucune donnée n'a été tronquée.": "Table too large: maximum {rows} rows, {columns} columns and {cells} cells. No data was truncated.",
+    "Accès automatique refusé pour une source réseau ou un lien : {path}. Utiliser une copie locale du fichier.": "Automatic access denied for a network source or link: {path}. Use a local copy of the file.",
+    "Classeur XLSX refusé : contenu décompressé trop volumineux ou chiffré.": "XLSX workbook rejected: expanded contents too large or encrypted.",
+    "Classeur XLSX refusé : structure XML trop profonde.": "XLSX workbook rejected: XML structure too deeply nested.",
+    "Classeur XLSX refusé : coordonnées de cellule invalides.": "XLSX workbook rejected: invalid cell coordinates.",
+    "Classeur XLSX invalide ou contenu XML interdit.": "Invalid XLSX workbook or forbidden XML content.",
+    "La protection XML est désactivée. Réinstaller les dépendances officielles de ThermalCurve.": "XML protection is disabled. Reinstall the official ThermalCurve dependencies.",
+    "Fichier texte refusé : trop de lignes ou ligne trop longue. Aucune donnée n'a été tronquée.": "Text file rejected: too many lines or a line is too long. No data was truncated.",
+    "Projet refusé : fichier trop volumineux, illisible ou trop complexe. {detail}": "Project rejected: file too large, unreadable or too complex. {detail}",
+})

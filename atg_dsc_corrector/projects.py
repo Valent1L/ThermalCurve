@@ -32,6 +32,10 @@ from .normalization import (
     validate_dtg_smoothing_points,
 )
 from .readers import load_experiment
+from .input_safety import (
+    DataReadError, MAX_PROJECT_BYTES, check_input_size, read_limited_bytes,
+    require_automatic_local_path,
+)
 from .thermal_program import validate_thermal_program
 
 
@@ -1916,14 +1920,15 @@ def new_project_document(name: str = "Sans titre") -> ProjectDocument:
 def load_project(path: str | Path) -> ProjectDocument:
     project_path = Path(path)
     try:
-        with project_path.open("r", encoding="utf-8") as stream:
-            value = json.load(stream)
+        value = json.loads(read_limited_bytes(project_path, MAX_PROJECT_BYTES).decode('utf-8'))
     except json.JSONDecodeError as exc:
         raise ProjectValidationError(
             f"JSON invalide à la ligne {exc.lineno}, colonne {exc.colno} : {exc.msg}"
         ) from exc
     except OSError as exc:
         raise ProjectError(f"Impossible de lire le projet : {exc}") from exc
+    except (DataReadError, UnicodeError, RecursionError) as exc:
+        raise ProjectValidationError(tr("Projet refusé : fichier trop volumineux, illisible ou trop complexe. {detail}", detail=str(exc))) from exc
     return ProjectDocument.from_dict(value)
 
 
@@ -1999,9 +2004,9 @@ def _candidate_paths(
 ) -> list[Path]:
     candidates: list[Path] = []
     if source.relative_path:
-        candidates.append(project_path.resolve().parent / source.relative_path)
+        candidates.append(Path(os.path.abspath(project_path)).parent / source.relative_path)
     absolute = Path(source.absolute_path)
-    if not candidates or absolute.resolve() != candidates[0].resolve():
+    if not candidates or os.path.normcase(os.path.abspath(absolute)) != os.path.normcase(os.path.abspath(candidates[0])):
         candidates.append(absolute)
     return candidates
 
@@ -2017,7 +2022,15 @@ def resolve_source(
 
     project_file = Path(project_path)
     initial_candidates = _candidate_paths(source, project_file)
-    candidate = next((path for path in initial_candidates if path.is_file()), None)
+    candidate = None
+    for path in initial_candidates:
+        try:
+            require_automatic_local_path(path)
+        except DataReadError as exc:
+            raise ProjectValidationError(str(exc)) from exc
+        if path.is_file():
+            candidate = path
+            break
     relocated = False
 
     while candidate is None:
@@ -2036,6 +2049,7 @@ def resolve_source(
             candidate = None
 
     while True:
+        check_input_size(candidate)
         digest = sha256_file(candidate)
         if digest == source.sha256:
             return SourceResolution(candidate.resolve(), relocated=relocated)

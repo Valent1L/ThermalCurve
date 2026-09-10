@@ -102,9 +102,10 @@ pandas 3.0.3        tableaux de données
 openpyxl 3.1.5      lecture XLSX et export de compatibilité
 XlsxWriter 3.2.9    écriture XLSX rapide
 xlrd 2.0.2          lecture XLS
+defusedxml 0.7.1    protection des imports XML/XLSX
 ```
 
-pip installe aussi leurs dépendances. requirements.txt fixe ces sept versions.
+pip installe aussi leurs dépendances. requirements.txt fixe ces huit versions.
 
 .venv est recommandé pour isoler ces bibliothèques des autres applications.
 Son activation PowerShell n'est pas nécessaire. Il reste facultatif : avec un
@@ -211,6 +212,26 @@ Garder les unités dans les fichiers. Une température absente interdit son usag
 comme axe ; un flux de chaleur absent ne peut pas être inventé. Consulter les
 avertissements pour une colonne ignorée ou une unité incompatible. Les originaux
 ne sont pas réécrits pendant le traitement.
+
+### Protection des fichiers importés
+
+À l'ouverture d'un projet, les sources sont recherchées automatiquement sur les
+disques locaux. Les chemins réseau (UNC ou lecteur réseau), les périphériques et
+les liens symboliques/jonctions sont refusés avant leur consultation automatique.
+Pour partager un projet, placer ses sources locales à côté du projet en conservant
+les chemins relatifs. L'importation d'un fichier réseau choisi explicitement par
+l'utilisateur reste possible ; une copie locale est recommandée pour réouvrir le projet.
+
+Les imports sont limités à 100 Mio par fichier et les projets à 10 Mio.
+Un tableau peut contenir au maximum 1 000 000 lignes, 4 096 colonnes et
+5 000 000 cellules (lignes × colonnes, cellules vides comprises). Pour XLSX,
+le contenu décompressé est limité à 256 Mio au total, 64 Mio par composant et
+10 000 composants ; la profondeur XML est limitée à 64 niveaux.
+Un texte est limité à 1 000 000 lignes et 1 048 576 caractères par ligne.
+Un dépassement provoque un refus explicite, sans troncature ni modification des
+sources. Les calculs et la précision des données acceptées restent inchangés.
+La protection XML defusedxml est incluse dans l'exécutable et requise pour
+l'installation Python. Ces protections ne suppriment pas l'avertissement SmartScreen.
 
 ## 5. Blanc, normalisation et signaux
 
