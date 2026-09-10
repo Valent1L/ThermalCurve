@@ -1,19 +1,23 @@
-"""Archives de distribution à liste explicite / Allowlisted release archives."""
+"""ZIP des sources sans exécutable / Source-only release ZIP."""
 
 import hashlib
 from pathlib import Path
 import tomllib
-from zipfile import ZipFile, ZIP_DEFLATED, ZIP_STORED
+from zipfile import ZipFile, ZIP_DEFLATED
 
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
 PREFIX = f"ThermalCurve-{VERSION}"
-DIST = ROOT / "dist"
+DIST = ROOT / "dist" / f"{PREFIX}-sources"
+SOURCE_FILES = (
+    "README.md", "README_EN.md", "changelog.md", "LICENSE.txt", "THIRD_PARTY_NOTICES.txt",
+    "pyproject.toml", "requirements.txt", "run_qt.py", "atg_dsc_corrector_qt.spec", ".gitattributes",
+)
 
 
-def archive(path, files, base, prefix, compression=ZIP_DEFLATED):
-    with ZipFile(path, "w", compression=compression) as output:
+def archive(path, files, base, prefix):
+    with ZipFile(path, "w", compression=ZIP_DEFLATED) as output:
         for file in sorted(files):
             if file.is_file():
                 output.write(file, str(Path(prefix) / file.relative_to(base)))
@@ -22,48 +26,29 @@ def archive(path, files, base, prefix, compression=ZIP_DEFLATED):
 
 
 def main():
-    upstream = ROOT / ".tmp/third-party-sources"
-    expected = (ROOT / "licenses/SOURCE_ARCHIVES_SHA256.txt").read_text(encoding="ascii").splitlines()
-    assert expected, "Missing source archive checksums"
-    for line in expected:
-        checksum, name = line.split("  ", 1)
-        with (upstream / name).open("rb") as stream:
-            assert hashlib.file_digest(stream, "sha256").hexdigest() == checksum, name
-    folder = DIST / f"{PREFIX}-windows-x64" / "ThermalCurve"
-    assert (folder / "ThermalCurve.exe").is_file()
-    for example in (ROOT / "Exemple").rglob("*"):
-        if example.is_file():
-            packaged = folder / example.relative_to(ROOT)
-            assert packaged.is_file() and packaged.read_bytes() == example.read_bytes(), packaged
-    assert (folder / "changelog.md").is_file()
-    files = list(folder.rglob("*"))
-    forbidden = {".git", ".venv", ".codex", ".agents", "__pycache__", ".pytest_cache"}
-    assert not any(forbidden.intersection(file.parts) or (
-        file.suffix == ".atgproj" and not file.is_relative_to(folder / "Exemple")
-    ) for file in files)
-    binary = DIST / f"{PREFIX}-windows-x64.zip"
-    archive(binary, files, folder, "ThermalCurve")
-
-    sources = [ROOT / name for name in (
-        "README.md", "README_EN.md", "changelog.md", "LICENSE.txt", "THIRD_PARTY_NOTICES.txt",
-        "pyproject.toml", "requirements.txt", "run_qt.py", "atg_dsc_corrector_qt.spec", ".gitattributes",
-    )]
+    source = DIST / f"{PREFIX}-source.zip"
+    manifest = DIST / "SHA256SUMS.txt"
+    DIST.mkdir(parents=True, exist_ok=True)
+    if any(path.name not in {source.name, manifest.name} for path in DIST.iterdir()):
+        raise ValueError("Dossier de publication non vide : utiliser un dossier dédié aux sources. / Use a dedicated source-only release folder.")
+    sources = [ROOT / name for name in SOURCE_FILES]
+    for file in sources:
+        if not file.is_file():
+            raise FileNotFoundError(file)
+    forbidden = {".git", ".venv", ".codex", ".agents", ".tmp", "__pycache__", ".pytest_cache", "build", "dist"}
+    binaries = {".exe", ".dll", ".pyd", ".so", ".dylib", ".pyc", ".pyo"}
     for directory in ("atg_dsc_corrector", "licenses", "packaging", "Exemple"):
         sources.extend(file for file in (ROOT / directory).rglob("*")
-                       if file.is_file() and "__pycache__" not in file.parts
-                       and file.suffix not in {".pyc", ".pyo"})
-    source = DIST / f"{PREFIX}-source.zip"
+                       if file.is_file() and not file.is_symlink()
+                       and not forbidden.intersection(file.relative_to(ROOT).parts)
+                       and file.suffix.lower() not in binaries
+                       and (file.suffix.lower() != ".atgproj" or file.is_relative_to(ROOT / "Exemple")))
     archive(source, sources, ROOT, PREFIX)
-
-    third_party = DIST / f"{PREFIX}-third-party-sources.zip"
-    archive(third_party, (upstream / line.split("  ", 1)[1] for line in expected),
-            upstream, "third-party-sources", ZIP_STORED)
-    checksums = []
-    for path in (binary, source, third_party):
-        with path.open("rb") as stream:
-            checksums.append(f"{hashlib.file_digest(stream, 'sha256').hexdigest()}  {path.name}")
-        print(f"{path.name}: {path.stat().st_size} bytes")
-    (DIST / "SHA256SUMS.txt").write_text("\n".join(checksums) + "\n", encoding="ascii")
+    with source.open("rb") as stream:
+        digest = hashlib.file_digest(stream, "sha256").hexdigest()
+    manifest.write_text(f"{digest}  {source.name}\n", encoding="ascii")
+    print(f"{source}: {source.stat().st_size} bytes")
+    print(manifest)
 
 
 if __name__ == "__main__":

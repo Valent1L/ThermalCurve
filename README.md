@@ -37,60 +37,70 @@ et en anglais. Voir les changements dans [changelog.md](changelog.md).
 
 ## 1. Installation et lancement
 
-### Dossier Windows avec exécutable
+### Distribution des sources uniquement
 
-Utiliser l'archive Windows x64 correspondant à la version souhaitée. Extraire
-tout son contenu dans un dossier où vous avez accès en écriture, puis ouvrir
-ThermalCurve.exe. Ne pas lancer l'application directement depuis l'archive.
-Conserver le dossier _internal et les autres fichiers livrés près de l'exécutable.
-Pour déplacer l'application, copier le dossier complet.
+La distribution actuelle de ThermalCurve 1.0.1 contient le code Python, les
+exemples, l'icône et les guides. **Elle ne contient ni `ThermalCurve.exe`, ni Python,
+ni les bibliothèques à installer.**
 
-Cette édition embarque Python et les bibliothèques nécessaires. Il n'est pas
-nécessaire d'installer Python, de créer .venv ou de disposer des droits
-administrateur pour lancer l'application dans votre dossier personnel.
-La cible est Windows x64. Les autres systèmes ne sont pas couverts par ce binaire.
-Le binaire a été vérifié localement sous Windows 11 Entreprise 64 bits.
+La distribution de l'exécutable a été suspendue après une détection par Microsoft
+Defender. Le fichier a été soumis à Microsoft le 10 septembre 2026 ; à cette date,
+l'analyse est en attente et un éventuel faux positif n'est pas confirmé. Les
+anciennes instructions permettant de passer l'avertissement SmartScreen ne
+s'appliquent pas à une détection antivirus. Ne pas désactiver les protections
+pour lancer l'ancien exécutable. Le lancement depuis les sources ne constitue
+pas une garantie d'absence de risque.
 
-### Avertissement Windows SmartScreen
+Le lancement a été vérifié sous Windows 11, 64 bits. Linux et macOS ne sont pas
+encore validés : si vous utilisez l'un de ces systèmes, merci de me contacter à
+valentin.legrand@emse.fr pour faire un retour. Les commandes ci-dessous concernent
+Windows. Sur un poste géré, respecter les règles d'installation de votre service
+informatique.
 
-L'exécutable de ThermalCurve 1.0.1 n'est pas signé avec un certificat d'éditeur
-reconnu. Au lancement après téléchargement, Windows peut donc afficher
-"Microsoft Defender SmartScreen a empêché le démarrage d'une application non reconnue".
-SmartScreen tient compte de la signature et de la réputation du fichier téléchargé.
-Cet avertissement seul ne constitue pas une détection de virus.
-[Explications de Microsoft](https://learn.microsoft.com/fr-fr/windows/apps/package-and-deploy/smartscreen-reputation).
+### Télécharger et installer
 
-Si vous avez vérifié que le ZIP provient de la
-[page officielle des releases](https://github.com/Valent1L/ThermalCurve/releases)
-et que son empreinte correspond à celle de `SHA256SUMS.txt` :
-
-1. Cliquer sur "Informations complémentaires" dans l'avertissement.
-2. Vérifier que le programme indiqué est `ThermalCurve.exe`.
-3. Cliquer sur "Exécuter quand même", si cette option est disponible.
-
-Sur un ordinateur professionnel, une règle de sécurité peut empêcher cette
-autorisation. Dans ce cas, contacter le service informatique pour faire valider
-l'application. Il n'est pas nécessaire de désactiver Microsoft Defender ou
-SmartScreen globalement.
-
-### Depuis les sources Python
-
-Prérequis : Python 3.14.6, 64 bits. La plage déclarée est >=3.14.6 et <3.15 ;
-la version vérifiée est 3.14.6. Installer Python depuis python.org si nécessaire.
-Extraire les sources dans un dossier personnel et ouvrir PowerShell dans ce
-dossier (celui contenant run_qt.py et requirements.txt).
-
-Pour une nouvelle installation sans environnement .venv existant :
+1. Ouvrir la [page des releases](https://github.com/Valent1L/ThermalCurve/releases).
+   Dans la version 1.0.1, développer "Assets" et télécharger
+   **`ThermalCurve-1.0.1-source.zip`** ainsi que `SHA256SUMS.txt`.
+   Ce ZIP préparé pour l'application contient aussi le dossier `Exemple` ; choisir
+   ce fichier plutôt que l'archive "Source code (zip)" générée par GitHub.
+2. Extraire tout le ZIP dans un dossier personnel accessible en écriture.
+3. Installer Python 3.14, 64 bits, version >=3.14.6 et <3.15, si nécessaire.
+   La version testée est [Python 3.14.6](https://www.python.org/downloads/release/python-3146/).
+   Sur cette page, dans "Files", choisir "Windows installer (64-bit)".
+   Après installation, ouvrir une nouvelle fenêtre PowerShell et vérifier
+   la version avec `py -3.14 --version`.
+4. Dans l'Explorateur Windows, ouvrir le dossier extrait qui contient `run_qt.py`
+   et `requirements.txt`. Saisir `powershell` dans la barre d'adresse, puis appuyer
+   sur Entrée pour ouvrir le terminal au bon endroit.
+5. Pour une première installation, exécuter les deux commandes suivantes, l'une
+   après l'autre, en attendant la fin de chacune :
 
 ```powershell
 py -3.14 -m venv .venv
-.venv\Scripts\python.exe -m pip install -r requirements.txt
-.venv\Scripts\python.exe run_qt.py
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-Les deux premières commandes ne sont nécessaires qu'à l'installation.
-Pour les lancements suivants, utiliser la troisième. Une connexion est nécessaire
-pour obtenir les bibliothèques à l'installation, pas pour les calculs ensuite.
+En cas d'erreur, résoudre celle-ci avant de poursuivre. Ces commandes créent
+l'environnement `.venv` et installent les bibliothèques. Une connexion Internet
+est nécessaire à cette étape, mais pas pour les calculs ensuite.
+
+### Lancer l'application
+
+Dans PowerShell, toujours depuis le dossier contenant `run_qt.py` :
+
+```powershell
+.\.venv\Scripts\python.exe run_qt.py
+```
+
+Pour les lancements suivants, seule cette commande est nécessaire. L'activation
+de `.venv` dans PowerShell et l'installation de PyInstaller ne sont pas nécessaires.
+Ne pas copier `.venv` d'un ordinateur à l'autre : recréer l'environnement à la
+nouvelle destination.
+
+Pour contrôler l'intégrité du téléchargement, exécuter dans le dossier contenant
+le ZIP `Get-FileHash .\ThermalCurve-1.0.1-source.zip -Algorithm SHA256` et comparer
+le résultat avec la ligne correspondante de `SHA256SUMS.txt`.
 
 Bibliothèques directes vérifiées :
 
@@ -106,12 +116,6 @@ defusedxml 0.7.1    protection des imports XML/XLSX
 ```
 
 pip installe aussi leurs dépendances. requirements.txt fixe ces huit versions.
-
-.venv est recommandé pour isoler ces bibliothèques des autres applications.
-Son activation PowerShell n'est pas nécessaire. Il reste facultatif : avec un
-Python compatible disposant déjà des dépendances, "py -3.14 run_qt.py" suffit.
-Ne pas copier .venv d'un ordinateur à l'autre ; recréer l'environnement à la
-nouvelle destination. Le dossier avec ThermalCurve.exe évite cette préparation.
 
 ## 2. Repères dans l'interface
 
@@ -230,8 +234,8 @@ le contenu décompressé est limité à 256 Mio au total, 64 Mio par composant e
 Un texte est limité à 1 000 000 lignes et 1 048 576 caractères par ligne.
 Un dépassement provoque un refus explicite, sans troncature ni modification des
 sources. Les calculs et la précision des données acceptées restent inchangés.
-La protection XML defusedxml est incluse dans l'exécutable et requise pour
-l'installation Python. Ces protections ne suppriment pas l'avertissement SmartScreen.
+La protection XML defusedxml fait partie des bibliothèques installées par
+`requirements.txt` et reste nécessaire au fonctionnement des protections d'import.
 
 ## 5. Blanc, normalisation et signaux
 
@@ -518,8 +522,8 @@ le sélecteur ; le code hexadécimal reste disponible dans l'infobulle.
 Le rendu réutilise le placement automatique de la légende à géométrie identique
 pendant une même image. Son déplacement redessine uniquement la légende lorsque
 le moteur graphique le permet. Aucun point ni précision des courbes n'est retiré.
-L'icône ThermalCurve est fournie en plusieurs tailles et configurée pour la fenêtre
-et l'exécutable Windows lors de sa construction.
+L'icône ThermalCurve est fournie en plusieurs tailles dans les sources et utilisée
+par la fenêtre de l'application Qt.
 Dans la liste des expériences, la colonne Blanc affiche un seul libellé par
 cellule. Elle est redimensionnable et l'infobulle donne le chemin complet.
 
@@ -671,9 +675,13 @@ l'instantané Mendeleev v0.20.0 sont conservées dans les ressources livrées.
 
 ## 12. Résoudre les difficultés courantes
 
-L'exécutable ne démarre pas : extraire à nouveau le dossier complet, vérifier
-que _internal accompagne l'exécutable et utiliser un dossier personnel accessible.
-Une copie de ThermalCurve.exe seule ne suffit pas.
+Commande `py` introuvable : vérifier l'installation de Python et de son lanceur
+Windows, puis rouvrir PowerShell. `py -3.14 --version` doit indiquer une version
+compatible avant de créer `.venv`.
+
+Fichier `run_qt.py` ou environnement `.venv` introuvable : ouvrir PowerShell dans
+le dossier extrait contenant `run_qt.py`, puis reprendre l'installation de la
+section 1 si `.venv` n'y a pas encore été créé.
 
 Module Python introuvable : utiliser le même interpréteur pour pip et run_qt.py.
 Reprendre la commande d'installation avec .venv\Scripts\python.exe.

@@ -1,292 +1,156 @@
-# Compiler ThermalCurve / Building ThermalCurve
-
-[Français](#français) | [English](#english)
+# Préparer la distribution des sources / Prepare the source distribution
 
 ## Français
 
-Cette procédure concerne le projet source sur Windows x64. Elle utilise les
-scripts existants et ne modifie pas une Release déjà publiée. Les commandes sont
-à lancer dans PowerShell, à la racine du projet, où se trouve `run_qt.py`.
+Depuis le 10 septembre 2026, la distribution 1.0.1 est préparée uniquement sous
+forme de sources Python. L'exécutable signalé par Defender a été soumis à Microsoft
+et son analyse est en attente. Le processus ci-dessous ne compile pas d'exécutable
+et ne prépare pas d'archive Windows avec Python embarqué.
 
-### 1. Préparer l'environnement
+### Préparer et vérifier
 
-Sur ton ordinateur actuel, conserve la `.venv` existante. Vérifie les outils :
+Travailler à la racine du projet avec l'environnement de développement déjà
+installé. Pour l'installation utilisateur et le lancement, suivre
+[README.md](../README.md). Aucun PyInstaller ni téléchargement de sources tierces
+n'est nécessaire à la création de ce ZIP.
 
-```powershell
-.venv\Scripts\python.exe --version
-.venv\Scripts\python.exe -m PyInstaller --version
-.venv\Scripts\python.exe -m pip check
-```
+La version et le nom des archives sont lus dans `pyproject.toml`. Avant une
+nouvelle version, tenir aussi à jour `atg_dsc_corrector/__init__.py`, les deux
+README et `changelog.md`. Conserver les exemples autorisés et les fichiers
+`atg_dsc_corrector/resources/thermalcurve.ico` et `thermalcurve.svg`.
 
-La version 1.0.0 a été construite avec Python **3.14.6 x64** et PyInstaller
-**6.21.0**. `requirements.txt` fixe les huit dépendances directes de l'application,
-dont XlsxWriter 3.2.9 pour l'export rapide depuis la version 1.0.1.
-Le fichier `.spec` inclut XlsxWriter et refuse la compilation si son module
-d'écriture est absent. La collecte des notices inclut aussi sa licence BSD.
-Le module defusedxml 0.7.1 de protection XML et sa licence PSF sont également
-inclus ; le `.spec` refuse une compilation sans ce module.
-Les dépendances transitives ne sont pas toutes verrouillées : une nouvelle
-installation n'est donc pas nécessairement identique à l'environnement original.
-
-Sur un autre ordinateur, installer Python 3.14.6 x64, puis exécuter ces commandes
-une seule fois dans une copie des sources sans `.venv` :
+Depuis le dépôt de développement complet, valider la sélection des fichiers :
 
 ```powershell
-py -3.14 -m venv .venv
-.venv\Scripts\python.exe -m pip install -r requirements.txt
-.venv\Scripts\python.exe -m pip install -c requirements.txt "pyinstaller==6.21.0" -e ".[dev]"
-.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m pytest tests/test_release_archives.py
 ```
 
-Arrêter si une commande échoue. L'activation PowerShell de `.venv` n'est pas
-nécessaire : chaque commande utilise directement son interpréteur.
+Ce test utilise des fichiers synthétiques isolés. Il vérifie la conservation des
+sources, exemples et licences, l'exclusion des binaires et projets personnels,
+ainsi que l'empreinte de l'archive. Le dossier `tests` n'est pas livré dans le ZIP.
 
-### 2. Choisir et renseigner la nouvelle version
-
-Par exemple, pour passer à **1.1.0**, modifier uniquement les mentions suivantes :
-
-| Fichier | Valeurs à mettre à jour |
-| --- | --- |
-| `atg_dsc_corrector/__init__.py` | `__version__ = "1.1.0"` |
-| `pyproject.toml` | `version = "1.1.0"` dans `[project]` |
-| `atg_dsc_corrector_qt.spec` | `filevers=(1, 1, 0, 0)`, `prodvers=(1, 1, 0, 0)`, puis `FileVersion` et `ProductVersion` à `"1.1.0"` |
-| `README.md` et `README_EN.md` | Version du titre et instructions affectées par les changements |
-
-Ces valeurs ne sont pas synchronisées automatiquement. Le nom des ZIP est lu
-dans `pyproject.toml`. Ne pas faire de remplacement global de `1.0.0` : la licence
-**PolyForm Noncommercial 1.0.0** et les références historiques gardent leur numéro.
-Mettre à jour le copyright seulement lorsque c'est approprié.
-
-### 3. Valider les sources
-
-L'icône est définie dans `atg_dsc_corrector/resources/thermalcurve.svg`.
-Après modification de ce dessin, régénérer l'ICO multi-tailles avec
-`.venv\Scripts\python.exe packaging/generate_icon.py`. Le fichier `.spec` l'incorpore
-à l'exécutable et aux ressources Qt. Les dimensions sont 16, 24, 32, 48, 64, 128 et 256 px.
-
-Dans le dépôt de travail complet, lancer les tests après les modifications :
+### Créer l'archive
 
 ```powershell
-.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\python.exe packaging/make_archives.py
 ```
 
-Attendre la fin et un code de sortie nul. Corriger les échecs avant la compilation.
-Le ZIP source publié pour 1.0.0 exclut le dossier `tests` : il permet de compiler,
-mais ne suffit pas à reproduire cette validation. Garder le dépôt de travail
-complet pour préparer les versions suivantes.
+Pour la version 1.0.1, le dossier à publier est
+`dist/ThermalCurve-1.0.1-sources/`. Il contient uniquement :
 
-### 4. Préparer les notices et sources tierces
+- `ThermalCurve-1.0.1-source.zip` ;
+- `SHA256SUMS.txt`, avec l'empreinte SHA-256 de ce ZIP.
 
-Avec les mêmes dépendances, conserver le dossier `licenses` et les **sept archives**
-originales dans `.tmp/third-party-sources`. Elles sont déjà présentes dans le dépôt
-de travail actuel. Sur une autre machine, télécharger
-`ThermalCurve-1.0.0-third-party-sources.zip` depuis la
-[Release 1.0.0](https://github.com/Valent1L/ThermalCurve/releases/tag/v1.0.0),
-l'extraire à part, puis copier les sept fichiers de son dossier
-`third-party-sources` directement dans `.tmp/third-party-sources`.
-Les chemins et empreintes attendus figurent dans `licenses/SOURCE_ARCHIVES_SHA256.txt`.
+Le ZIP contient le code, `run_qt.py`, les dépendances déclarées, les guides,
+le changelog, `Exemple`, les ressources dont l'icône, les licences et les scripts
+de préparation. Le fichier `.spec` reste disponible pour les développeurs ;
+il n'est pas exécuté par cette procédure.
+
+Les exécutables et bibliothèques compilées (`.exe`, `.dll`, `.pyd`, `.so`, `.dylib`),
+les caches, les environnements locaux et les projets personnels sont exclus.
+Seuls les projets `.atgproj` du dossier `Exemple` sont inclus. La liste des fichiers
+de premier niveau est explicite : ne pas y ajouter de fichiers privés.
+
+Le script refuse un dossier de publication contenant d'autres fichiers. Les
+anciennes archives et dossiers compilés ailleurs dans `dist` restent inchangés.
+Ne pas les mélanger au nouveau dossier. Les notices et références des sources
+tierces restent dans le ZIP ; les bibliothèques sont installées par `pip`, et
+aucune nouvelle archive de leurs sources n'est produite.
+
+Après création, contrôler le contenu du ZIP, son extraction et le lancement depuis
+les sources extraites. Vérifier l'empreinte avec :
 
 ```powershell
-.venv\Scripts\python.exe packaging/prepare_licenses.py
+Get-FileHash .\dist\ThermalCurve-1.0.1-sources\ThermalCurve-1.0.1-source.zip -Algorithm SHA256
 ```
 
-Ce script collecte les notices locales ; il ne télécharge pas les archives et
-n'installe aucune dépendance. Si les versions des dépendances changent, actualiser
-d'abord leurs sources et notices, ainsi que les versions attendues dans
-`packaging/prepare_licenses.py`. Revalider aussi le hook Qt et la distribution.
-Les archives et notices de 1.0.0 ne doivent pas être réutilisées comme si elles
-décrivaient de nouvelles versions des bibliothèques.
+### Mettre à jour GitHub manuellement
 
-### 5. Construire le dossier Windows
+Dans la page [Releases](https://github.com/Valent1L/ThermalCurve/releases), modifier
+la release 1.0.1 : retirer l'ancien ZIP `windows-x64` des fichiers téléchargeables,
+puis remplacer le ZIP de sources et `SHA256SUMS.txt` par ceux du nouveau dossier.
+Si un `.exe` est proposé séparément, le retirer également. Indiquer dans la
+description que Python doit être installé et renvoyer vers les README actualisés.
+Les sources tierces d'anciennes distributions peuvent rester disponibles pour
+conserver leur provenance.
 
-Exécuter ce bloc dans une même session PowerShell. Il lit la version du projet,
-refuse de remplacer un dossier de distribution existant et restaure le `PATH`
-après la compilation. Le `PATH` minimal évite de collecter des DLL d'autres logiciels.
-
-```powershell
-$releaseVersion = & .venv\Scripts\python.exe -c "import pathlib,tomllib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text(encoding='utf-8'))['project']['version'])"
-if ($LASTEXITCODE -ne 0) { throw 'Lecture de version impossible / Cannot read version' }
-$releaseFolder = "dist/ThermalCurve-$releaseVersion-windows-x64"
-if (Test-Path -LiteralPath $releaseFolder) { throw 'Dossier deja present / Output folder already exists' }
-$previousPath = $env:PATH
-try {
-    $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
-    & .venv\Scripts\python.exe -m PyInstaller --clean --noconfirm --distpath $releaseFolder --workpath "build/thermalcurve-$releaseVersion" atg_dsc_corrector_qt.spec
-    if ($LASTEXITCODE -ne 0) { throw 'Compilation echouee / Build failed' }
-} finally {
-    $env:PATH = $previousPath
-}
-$bundle = Join-Path $releaseFolder 'ThermalCurve'
-Copy-Item -LiteralPath 'README.md','README_EN.md','changelog.md','LICENSE.txt','THIRD_PARTY_NOTICES.txt' -Destination $bundle -ErrorAction Stop
-Copy-Item -LiteralPath 'licenses','Exemple' -Destination $bundle -Recurse -ErrorAction Stop
-```
-
-Pour 1.1.0, le programme est dans
-`dist/ThermalCurve-1.1.0-windows-x64/ThermalCurve/ThermalCurve.exe`.
-Le fichier `.spec` conserve les ressources et le mode dossier autonome ; ne pas
-le remplacer par une commande générique `--onefile` sur `run_qt.py`.
-La copie des notices et des guides après compilation est nécessaire : le `.spec`
-ne les ajoute pas au dossier racine du binaire.
-
-### 6. Vérifier le programme compilé
-
-Ouvrir l'exécutable depuis l'Explorateur Windows et vérifier :
-
-- le nom et la nouvelle version dans « À propos », en français et en anglais ;
-- le chargement d'un exemple synthétique ou d'une copie de données autorisée,
-  le traitement, la comparaison et les exports XLSX et PNG/SVG/PDF ;
-- la sauvegarde et la réouverture d'un nouveau projet de test ;
-- les calculs stœchiométriques et le tableau périodique ;
-- le lancement après copie du dossier **complet** dans un autre emplacement.
-
-Vérifier en priorité les fonctionnalités qui ont changé. Ne pas écraser de données
-expérimentales pendant ces essais. Un build réussi ne prouve pas à lui seul que
-tous les parcours fonctionnent. Fermer le programme avant l'archivage.
-
-### 7. Créer et publier les archives
-
-Une fois les contrôles réussis :
-
-```powershell
-.venv\Scripts\python.exe packaging/make_archives.py
-if ($LASTEXITCODE -ne 0) { throw 'Archivage echoue / Archiving failed' }
-```
-
-Le script vérifie les empreintes des archives tierces, crée les trois ZIP, relit
-leur intégrité et écrit `dist/SHA256SUMS.txt`. Pour la version de l'exemple :
-
-- `ThermalCurve-1.1.0-windows-x64.zip` : programme autonome pour les utilisateurs ;
-- `ThermalCurve-1.1.0-source.zip` : sources propres, guides et procédure de compilation ;
-- `ThermalCurve-1.1.0-third-party-sources.zip` : sources tierces ;
-- `SHA256SUMS.txt` : empreintes des trois ZIP.
-
-Une nouvelle exécution remplace les ZIP du même numéro et `SHA256SUMS.txt`.
-Conserver les livrables de chaque version dans leur propre dossier d'archivage.
-Extraire le nouveau ZIP Windows ailleurs et tester son exécutable avant publication.
-
-Sur GitHub, publier les sources propres, créer un tag correspondant (par exemple
-`v1.1.0`), puis une nouvelle Release à partir de ce tag. Joindre les trois ZIP et
-`SHA256SUMS.txt`, et décrire les changements en français et en anglais. Conserver
-la Release 1.0.0. L'historique du dépôt de travail local contient des données et
-configurations privées : utiliser la copie de publication propre, pas un push
-global de cet historique. Sur cet ordinateur, cette copie se trouve dans
-`.tmp/github-publication/checkout` ; ce dossier temporaire n'est pas une sauvegarde.
+Les fichiers visibles sur la page principale du dépôt doivent être mis à jour
+séparément dans le dépôt public, notamment les deux README. Une modification des
+pièces jointes de la release ne modifie pas ces fichiers ni le code associé au tag.
+Ne pas pousser l'historique du dépôt de travail contenant des données privées :
+utiliser le dépôt public préparé pour la publication et vérifier chaque fichier.
+Ce script ne crée ni commit, ni tag, ni publication GitHub.
 
 ## English
 
-Run these steps in PowerShell at the source project root on Windows x64, where
-`run_qt.py` is located. They use the existing tools to prepare a new release.
+As of September 10, 2026, release 1.0.1 is prepared as Python sources only. The
+executable detected by Defender has been submitted to Microsoft and analysis is
+pending. This procedure does not build an executable or a Windows runtime bundle.
 
-### 1. Prepare the environment
+### Prepare and check
 
-Keep the existing `.venv` on the current computer. Check Python, PyInstaller and
-installed dependencies with the first command block in the French section.
-Version 1.0.0 was built with **Python 3.14.6 x64** and **PyInstaller 6.21.0**.
-`requirements.txt` pins the eight direct application dependencies, including
-XlsxWriter 3.2.9 for fast exports since version 1.0.1; transitive
-dependencies are not fully pinned, so a fresh installation may differ.
-The `.spec` includes XlsxWriter and fails the build if its workbook module is
-missing. Notice collection also includes its BSD license.
-The defusedxml 0.7.1 XML protection module and its PSF license are also included;
-the `.spec` rejects a build without this module.
+Work at the project root with the existing development environment. User
+installation and startup are documented in [README_EN.md](../README_EN.md).
+Neither PyInstaller nor third-party source downloads are required to create this ZIP.
 
-On another computer, install Python 3.14.6 x64, then run:
+The version and archive names come from `pyproject.toml`. For a new version, also
+update `atg_dsc_corrector/__init__.py`, both READMEs and `changelog.md`. Preserve
+the authorized examples and `atg_dsc_corrector/resources/thermalcurve.ico` and
+`thermalcurve.svg`.
 
-```powershell
-py -3.14 -m venv .venv
-.venv\Scripts\python.exe -m pip install -r requirements.txt
-.venv\Scripts\python.exe -m pip install -c requirements.txt "pyinstaller==6.21.0" -e ".[dev]"
-.venv\Scripts\python.exe -m pip check
-```
-
-Stop on any failure. PowerShell activation is unnecessary because each command
-uses the virtual environment's interpreter directly.
-
-### 2. Set the new version
-
-For **1.1.0**, update `__version__` in `atg_dsc_corrector/__init__.py`, the project
-`version` in `pyproject.toml`, both Windows version strings in
-`atg_dsc_corrector_qt.spec`, and its `filevers`/`prodvers` tuples to `(1, 1, 0, 0)`.
-Update both Markdown README titles and any changed user instructions. These values
-are not synchronized automatically; ZIP names use `pyproject.toml`. Do not globally
-replace `1.0.0`: the PolyForm Noncommercial license version and historical references
-retain their numbers. Update copyright only when appropriate.
-
-### 3. Validate the sources
+From the full development checkout, validate file selection:
 
 ```powershell
-.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\python.exe -m pytest tests/test_release_archives.py
 ```
 
-Wait for completion and a zero exit code; fix failures before building. The published
-1.0.0 source ZIP excludes `tests`. It supports building but cannot reproduce the
-full validation suite; retain the complete working repository for future releases.
+The test uses isolated synthetic files to check preservation of sources, examples
+and licenses, exclusion of binaries and private projects, and the archive checksum.
+The `tests` directory is not distributed in the ZIP.
 
-### 4. Prepare third-party notices and sources
-
-With unchanged dependencies, retain `licenses` and the seven original archives
-directly inside `.tmp/third-party-sources`. On a fresh machine, obtain the
-third-party source ZIP from the [1.0.0 Release](https://github.com/Valent1L/ThermalCurve/releases/tag/v1.0.0),
-extract it separately, and copy the seven files from its `third-party-sources`
-folder to that location. Expected names and hashes are recorded in
-`licenses/SOURCE_ARCHIVES_SHA256.txt`.
+### Create the archive
 
 ```powershell
-.venv\Scripts\python.exe packaging/prepare_licenses.py
+.\.venv\Scripts\python.exe packaging/make_archives.py
 ```
 
-This collects local notices without downloads or dependency installation. If
-dependency versions change, update corresponding sources, notices and the expected
-versions in this script first. Revalidate the Qt hook and the package. Do not assume
-the 1.0.0 notices describe newer dependency versions.
+For version 1.0.1, publish only the contents of
+`dist/ThermalCurve-1.0.1-sources/`:
 
-### 5. Build the Windows folder
+- `ThermalCurve-1.0.1-source.zip`;
+- `SHA256SUMS.txt`, containing the ZIP's SHA-256 checksum.
 
-Run the complete PowerShell block in French step 5 unchanged. It reads the project
-version, refuses an existing output folder, temporarily restricts `PATH` to Windows
-system directories, runs the existing `.spec`, restores `PATH`, then copies both
-Markdown guides, dated changelog, example folder and all license notices alongside the executable. These copies are
-necessary because the `.spec` does not place them at the binary folder root.
+The ZIP contains the code, `run_qt.py`, dependency declarations, guides, changelog,
+`Exemple`, resources including the icon, licenses and preparation scripts. The
+`.spec` file remains available to developers; this procedure does not run it.
 
-For 1.1.0, the result is
-`dist/ThermalCurve-1.1.0-windows-x64/ThermalCurve/ThermalCurve.exe`.
-Keep the `.spec` and its standalone folder mode rather than replacing the command
-with a generic `--onefile` invocation on `run_qt.py`.
+Executables and compiled libraries (`.exe`, `.dll`, `.pyd`, `.so`, `.dylib`), caches,
+local environments and private projects are excluded. Only `.atgproj` files under
+`Exemple` are included. Top-level files are explicitly listed; do not add private files.
 
-### 6. Check the executable
+The script rejects a publication folder containing other files. Earlier archives
+and compiled folders elsewhere in `dist` are preserved. Keep them separate from the
+new folder. Third-party notices and source references remain in the ZIP; libraries
+are installed with `pip`, and no new third-party source archive is generated.
 
-Check About and the new version in both languages; import, processing, comparison,
-XLSX and PNG/SVG/PDF exports; saving and reopening a new test project;
-stoichiometry and the periodic table. Prioritize changed functionality. Use synthetic
-examples or authorized copies and never overwrite experimental files. Copy the
-entire application folder elsewhere and verify startup. Build success alone does
-not validate every workflow. Close the executable before archiving.
-
-### 7. Archive and publish
+After creation, check ZIP contents, extraction and startup from the extracted
+sources. Verify the checksum with:
 
 ```powershell
-.venv\Scripts\python.exe packaging/make_archives.py
-if ($LASTEXITCODE -ne 0) { throw 'Archiving failed' }
+Get-FileHash .\dist\ThermalCurve-1.0.1-sources\ThermalCurve-1.0.1-source.zip -Algorithm SHA256
 ```
 
-This validates upstream archive hashes, creates and checks the three ZIP files,
-and writes `dist/SHA256SUMS.txt`. The Windows ZIP is for users, the source ZIP
-contains clean sources and documentation, and the third-party ZIP contains upstream
-sources. Running the script again replaces ZIPs with the same version number and
-the checksum file; preserve each release's artifacts separately. Extract the Windows
-ZIP elsewhere and test it before publishing.
+### Update GitHub manually
 
-Publish the clean sources to GitHub, create a matching tag such as `v1.1.0`, and
-create a new Release from that tag with all three ZIPs, the checksum file and
-bilingual release notes. Keep the existing 1.0.0 Release. The local working history
-contains private configuration and data: use the clean publication checkout, not
-a push of that history. On the current computer the publication checkout is
-`.tmp/github-publication/checkout`; this temporary directory is not a backup.
+On the [Releases page](https://github.com/Valent1L/ThermalCurve/releases), edit release
+1.0.1: remove the old `windows-x64` ZIP from the downloadable assets, then replace
+the source ZIP and `SHA256SUMS.txt` with the new files. Remove any separately
+published `.exe` as well. Explain in the description that Python must be installed
+and link to the updated READMEs. Third-party sources for previous distributions
+may remain available to preserve their provenance.
 
-## Références / References
-
-- [PyInstaller: using spec files](https://pyinstaller.org/en/stable/spec-files.html)
-- [PyInstaller: command-line options](https://pyinstaller.org/en/stable/usage.html)
-- [Configuration du build / Build configuration](../atg_dsc_corrector_qt.spec)
-- [Création des archives / Archive creation](make_archives.py)
-- [Collecte des notices / Notice collection](prepare_licenses.py)
+Files shown on the repository's main page, especially both READMEs, need to be
+updated separately in the public repository. Changing release attachments does
+not update these files or the code associated with the tag. Do not push the working
+repository's history containing private data: use the checkout prepared for public
+release and review each file. This script creates no commit, tag or GitHub publication.

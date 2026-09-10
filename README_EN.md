@@ -36,58 +36,67 @@ in English and French. See [changelog.md](changelog.md) for changes.
 
 ## 1. Installation and startup
 
-### Windows folder with executable
+### Source-only distribution
 
-Choose the Windows x64 archive for the required release. Extract its entire
-contents into a folder you can write to, then open ThermalCurve.exe. Do not run
-the application directly inside the ZIP archive. Keep the _internal directory
-and all accompanying files next to the executable. Copy the entire folder when
-moving the application.
+The current ThermalCurve 1.0.1 distribution contains the Python code, examples,
+icon and guides. **It includes neither `ThermalCurve.exe`, nor Python, nor the
+libraries that need to be installed.**
 
-This edition includes Python and the required libraries. You do not need to
-install Python, create a .venv or have administrator rights to run it from your
-personal folder. The binary targets Windows x64; it does not cover other systems.
-The binary was checked locally on Windows 11 Enterprise, 64-bit.
+Executable distribution was suspended following a Microsoft Defender detection.
+The file was submitted to Microsoft on September 10, 2026; as of that date,
+analysis is pending and a possible false positive has not been confirmed. The
+previous instructions for passing a SmartScreen warning do not apply to an
+antivirus detection. Do not disable protections to run the old executable.
+Running from source is not a guarantee of safety.
 
-### Windows SmartScreen warning
+Startup has been checked on Windows 11, 64-bit. Linux and macOS have not yet
+been validated: if you use either system, please contact me at
+valentin.legrand@emse.fr with your feedback. The commands below are for Windows.
+On a managed computer, follow your IT department's installation rules.
 
-The ThermalCurve 1.0.1 executable is not signed with a recognized publisher
-certificate. When launching it after downloading, Windows may therefore display
-"Microsoft Defender SmartScreen prevented an unrecognized app from starting".
-SmartScreen considers the signature and reputation of the downloaded file.
-This warning alone does not constitute a virus detection.
-[Microsoft's explanation](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation).
+### Download and install
 
-If you have checked that the ZIP comes from the
-[official releases page](https://github.com/Valent1L/ThermalCurve/releases)
-and that its checksum matches the entry in `SHA256SUMS.txt`:
-
-1. Click "More info" in the warning.
-2. Check that the application shown is `ThermalCurve.exe`.
-3. Click "Run anyway", if this option is available.
-
-On a work computer, a security policy may prevent this approval. In that case,
-contact your IT department to have the application approved. There is no need
-to disable Microsoft Defender or SmartScreen globally.
-
-### Running from Python sources
-
-Requirement: Python 3.14.6, 64-bit. The declared range is >=3.14.6 and <3.15;
-the verified version is 3.14.6. Install Python from python.org if needed.
-Extract the sources to a personal folder and open PowerShell in that folder,
-which contains run_qt.py and requirements.txt.
-
-For a new installation with no existing .venv:
+1. Open the [releases page](https://github.com/Valent1L/ThermalCurve/releases).
+   Under version 1.0.1, expand "Assets" and download
+   **`ThermalCurve-1.0.1-source.zip`** and `SHA256SUMS.txt`.
+   This prepared application ZIP also includes the `Exemple` folder; choose it
+   instead of GitHub's automatically generated "Source code (zip)" archive.
+2. Extract the entire ZIP into a personal folder you can write to.
+3. Install 64-bit Python 3.14, version >=3.14.6 and <3.15, if needed.
+   The tested version is [Python 3.14.6](https://www.python.org/downloads/release/python-3146/).
+   On that page, under "Files", choose "Windows installer (64-bit)".
+   After installation, open a new PowerShell window and check the version
+   with `py -3.14 --version`.
+4. In Windows Explorer, open the extracted folder containing `run_qt.py`
+   and `requirements.txt`. Type `powershell` in the address bar and press Enter
+   to open the terminal in the right folder.
+5. For the first installation, run these two commands in order, waiting for
+   each to finish:
 
 ```powershell
 py -3.14 -m venv .venv
-.venv\Scripts\python.exe -m pip install -r requirements.txt
-.venv\Scripts\python.exe run_qt.py
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-The first two commands are only needed for installation. Use the third command
-for subsequent launches. An internet connection is needed to obtain libraries
-during installation, but not for subsequent calculations.
+Resolve any errors before continuing. These commands create the `.venv`
+environment and install the libraries. This step requires an internet
+connection; subsequent calculations run locally without one.
+
+### Start the application
+
+In PowerShell, still in the folder containing `run_qt.py`:
+
+```powershell
+.\.venv\Scripts\python.exe run_qt.py
+```
+
+Only this command is needed for subsequent launches. Activating `.venv` in
+PowerShell and installing PyInstaller are unnecessary. Do not copy `.venv`
+between computers: recreate the environment at the new location.
+
+To check download integrity, run
+`Get-FileHash .\ThermalCurve-1.0.1-source.zip -Algorithm SHA256` in the folder
+containing the ZIP and compare the result with its entry in `SHA256SUMS.txt`.
 
 Verified direct libraries:
 
@@ -103,12 +112,6 @@ defusedxml 0.7.1    XML/XLSX import protection
 ```
 
 pip also installs their dependencies. requirements.txt pins these eight versions.
-
-A .venv is recommended to isolate these libraries from other applications.
-PowerShell activation is unnecessary. The environment is optional: a compatible
-Python with the dependencies installed can run "py -3.14 run_qt.py" directly.
-Do not copy a .venv between computers; recreate it at the new location. The
-folder containing ThermalCurve.exe avoids this preparation.
 
 ## 2. Finding your way around
 
@@ -221,8 +224,8 @@ A table can contain at most 1,000,000 rows, 4,096 columns and 5,000,000 cells
 Text files are limited to 1,000,000 lines and 1,048,576 characters per line.
 Exceeding a limit causes an explicit rejection, without truncating or changing
 source data. Calculations and accepted data precision remain unchanged.
-The defusedxml XML protection is included in the executable and required for
-Python installations. These safeguards do not remove the SmartScreen warning.
+The defusedxml XML protection is installed through `requirements.txt` and
+is required for the import safeguards to work.
 
 ## 5. Blanks, normalization and signals
 
@@ -489,7 +492,7 @@ the hexadecimal code remains available in the tooltip.
 Screen rendering reuses automatic legend placement for identical geometry within
 the same frame. Dragging redraws only the legend when supported by the rendering
 backend. No curve points or numerical precision are removed. The ThermalCurve icon
-is supplied in multiple sizes and configured for Qt and the Windows executable build.
+is supplied in multiple sizes in the sources and used by the Qt application window.
 In the experiment list, the Blank column displays a single label per cell.
 It can be resized, and the tooltip provides the full path.
 
@@ -634,9 +637,13 @@ distributed resources.
 
 ## 12. Troubleshooting
 
-Executable will not start: extract the entire folder again, check that _internal
-accompanies the executable, and use an accessible personal folder. Copying only
-ThermalCurve.exe is insufficient.
+Command `py` not found: check that Python and its Windows launcher are installed,
+then reopen PowerShell. `py -3.14 --version` must report a compatible version
+before creating `.venv`.
+
+Missing `run_qt.py` or `.venv`: open PowerShell in the extracted folder containing
+`run_qt.py`, then repeat the installation in section 1 if `.venv` has not been
+created there yet.
 
 Missing Python module: use the same interpreter for pip and run_qt.py. Repeat
 the installation command with .venv\Scripts\python.exe.
