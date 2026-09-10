@@ -48,8 +48,27 @@ This edition includes Python and the required libraries. You do not need to
 install Python, create a .venv or have administrator rights to run it from your
 personal folder. The binary targets Windows x64; it does not cover other systems.
 The binary was checked locally on Windows 11 Enterprise, 64-bit.
-An unsigned executable may trigger a Windows warning: check its origin and the
-checksum supplied with the archive before deciding whether to run it.
+
+### Windows SmartScreen warning
+
+The ThermalCurve 1.0.1 executable is not signed with a recognized publisher
+certificate. When launching it after downloading, Windows may therefore display
+"Microsoft Defender SmartScreen prevented an unrecognized app from starting".
+SmartScreen considers the signature and reputation of the downloaded file.
+This warning alone does not constitute a virus detection.
+[Microsoft's explanation](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation).
+
+If you have checked that the ZIP comes from the
+[official releases page](https://github.com/Valent1L/ThermalCurve/releases)
+and that its checksum matches the entry in `SHA256SUMS.txt`:
+
+1. Click "More info" in the warning.
+2. Check that the application shown is `ThermalCurve.exe`.
+3. Click "Run anyway", if this option is available.
+
+On a work computer, a security policy may prevent this approval. In that case,
+contact your IT department to have the application approved. There is no need
+to disable Microsoft Defender or SmartScreen globally.
 
 ### Running from Python sources
 

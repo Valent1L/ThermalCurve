@@ -4,6 +4,7 @@
 
 ### Français
 
+- Documentation : explication de l'avertissement Windows SmartScreen pour l'exécutable non signé, vérification de provenance et d'empreinte, étapes de lancement et recours au service informatique sur les postes gérés, dans les guides français et anglais.
 - Graphique avec un seul axe vertical : rétablissement du bord droit du cadre, noir par défaut à l'export et cohérent avec le style de l'axe. Correction commune aux expériences individuelles, superpositions et moyennes, sans ajout de graduations ni modification des données.
 - Distribution 1.0.1 : inclusion des projets de démonstration `.atgproj` du dossier `Exemple` dans les archives, sans inclure les projets personnels situés hors de ce dossier.
 - Éditeur de légende : réglages du texte disposés sur des lignes adaptables pour éviter le débordement horizontal avec la police de démarrage.
@@ -15,6 +16,7 @@
 
 ### English
 
+- Documentation: explain the Windows SmartScreen warning for the unsigned executable, origin and checksum checks, launch steps and IT approval on managed computers in both language guides.
 - Single vertical axis plots: restore the right frame border, black by default in exports and consistent with the axis style. Shared fix for individual experiments, overlays and means, without extra ticks or data changes.
 - Release 1.0.1: include the `.atgproj` demonstration projects from `Exemple` in the archives, while excluding personal projects outside this folder.
 - Legend editor: text controls use wrapping form rows to avoid horizontal overflow with the startup font.

@@ -50,8 +50,28 @@ nécessaire d'installer Python, de créer .venv ou de disposer des droits
 administrateur pour lancer l'application dans votre dossier personnel.
 La cible est Windows x64. Les autres systèmes ne sont pas couverts par ce binaire.
 Le binaire a été vérifié localement sous Windows 11 Entreprise 64 bits.
-Un exécutable non signé peut déclencher un avertissement Windows : vérifier sa
-provenance et l'empreinte fournie avec l'archive avant de décider de l'exécuter.
+
+### Avertissement Windows SmartScreen
+
+L'exécutable de ThermalCurve 1.0.1 n'est pas signé avec un certificat d'éditeur
+reconnu. Au lancement après téléchargement, Windows peut donc afficher
+"Microsoft Defender SmartScreen a empêché le démarrage d'une application non reconnue".
+SmartScreen tient compte de la signature et de la réputation du fichier téléchargé.
+Cet avertissement seul ne constitue pas une détection de virus.
+[Explications de Microsoft](https://learn.microsoft.com/fr-fr/windows/apps/package-and-deploy/smartscreen-reputation).
+
+Si vous avez vérifié que le ZIP provient de la
+[page officielle des releases](https://github.com/Valent1L/ThermalCurve/releases)
+et que son empreinte correspond à celle de `SHA256SUMS.txt` :
+
+1. Cliquer sur "Informations complémentaires" dans l'avertissement.
+2. Vérifier que le programme indiqué est `ThermalCurve.exe`.
+3. Cliquer sur "Exécuter quand même", si cette option est disponible.
+
+Sur un ordinateur professionnel, une règle de sécurité peut empêcher cette
+autorisation. Dans ce cas, contacter le service informatique pour faire valider
+l'application. Il n'est pas nécessaire de désactiver Microsoft Defender ou
+SmartScreen globalement.
 
 ### Depuis les sources Python
 
