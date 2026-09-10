@@ -1,4 +1,4 @@
-ThermalCurve 1.0.0 - Qt / PySide / Shiboken 6.11.1
+ThermalCurve 1.0.1 - Qt / PySide / Shiboken 6.11.1
 
 FR
 Cette application utilise Qt, PySide et Shiboken sous LGPL v3.
@@ -8,15 +8,15 @@ et Qt/pyside-setup-everywhere-src-6.11.1/LICENSES/.
 
 Les DLL/extensions proviennent des paquets PySide6/Shiboken6 6.11.1 installés,
 sans modification de leur code. Les archives officielles de sources correspondantes
-sont fournies séparément dans ThermalCurve-1.0.0-third-party-sources.zip.
+sont fournies séparément dans ThermalCurve-1.0.1-third-party-sources.zip.
 Leurs empreintes figurent dans SOURCE_ARCHIVES_SHA256.txt. Conserver cet accès
 aux sources lors d'une redistribution.
 
 Pour remplacer une bibliothèque : fermer ThermalCurve, copier le dossier complet
 de l'application comme sauvegarde, puis remplacer les DLL/extensions concernées
-dans _internal/PySide6 et/ou _internal/shiboken6 par une construction Windows x64
+dans python/Lib/site-packages/PySide6 et/ou python/Lib/site-packages/shiboken6 par une construction Windows x64
 compatible avec l'ABI Qt/PySide 6.11 et le Python 3.14 embarqué. Remplacer ensemble
-les fichiers interdépendants. Relancer ThermalCurve.exe et vérifier vos résultats.
+les fichiers interdépendants. Relancer Lancer_ThermalCurve.cmd et vérifier vos résultats.
 Aucun contrôle de signature propre à ThermalCurve n'interdit ce remplacement.
 Les droits LGPL de modification et de rétro-ingénierie pour déboguer ces
 modifications restent applicables. La licence PolyForm ne les restreint pas.
@@ -27,14 +27,14 @@ Copyright © The Qt Company Ltd. and other contributors.
 GPL v3 and LGPL v3 texts are retained in the directories identified above.
 DLLs/extensions come from installed PySide6/Shiboken6 6.11.1 packages, without
 code modifications. Corresponding official source archives are provided separately
-as ThermalCurve-1.0.0-third-party-sources.zip. SOURCE_ARCHIVES_SHA256.txt records
+as ThermalCurve-1.0.1-third-party-sources.zip. SOURCE_ARCHIVES_SHA256.txt records
 their hashes. Preserve access to these sources when redistributing the application.
 
 To replace a library, close ThermalCurve and copy the whole application folder
-as a backup. Replace the relevant DLLs/extensions in _internal/PySide6 and/or
-_internal/shiboken6 with a Windows x64 build compatible with the Qt/PySide 6.11 ABI
+as a backup. Replace the relevant DLLs/extensions in python/Lib/site-packages/PySide6 and/or
+python/Lib/site-packages/shiboken6 with a Windows x64 build compatible with the Qt/PySide 6.11 ABI
 and bundled Python 3.14. Replace interdependent files together. Restart
-ThermalCurve.exe and check your results. ThermalCurve has no custom signature
+Lancer_ThermalCurve.cmd and check your results. ThermalCurve has no custom signature
 check preventing replacement. LGPL rights to modify and reverse engineer to
 debug these changes remain applicable and are not restricted by PolyForm.
 

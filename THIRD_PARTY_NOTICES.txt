@@ -1,11 +1,11 @@
 ThermalCurve 1.0.1 - Composants tiers / Third-party components
 
-FR : La distribution actuelle contient uniquement les sources de l'application
-et ses ressources. Python et les bibliothèques s'installent séparément. Les
+FR : Le ZIP portable inclut le Python officiel et les bibliothèques dans le
+dossier python. Le ZIP de sources nécessite leur installation séparée. Les
 notices sont conservées, y compris celles des anciennes distributions compilées.
-EN: The current distribution contains only application sources and resources.
-Python and libraries are installed separately. Notices are retained, including
-those relevant to earlier compiled distributions.
+EN: The portable ZIP includes official Python and libraries in the python
+folder. The source ZIP requires their separate installation. Notices are retained,
+including those relevant to earlier compiled distributions.
 
 FR
 La licence PolyForm Noncommercial s'applique au code original de ThermalCurve.

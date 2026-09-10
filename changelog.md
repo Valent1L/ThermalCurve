@@ -4,6 +4,8 @@
 
 ### Français
 
+- Distribution portable Windows x64 : Python officiel 3.14.6, bibliothèques validées et lanceur `Lancer_ThermalCurve.cmd` inclus, sans installation ni `.venv` chez l'utilisateur. Conservation des sources, exemples, icône et licences ; sources tierces proposées séparément. Lanceur isolé des installations Python externes ; aucun `ThermalCurve.exe` PyInstaller. README, description de release et mail adaptés. Calculs scientifiques inchangés.
+- Documentation : message Windows Defender raccourci dans les deux README, la description de release et le mail, avec mention d'une possible version exécutable dans une future mise à jour si le blocage est résolu.
 - Distribution : préparation d'un ZIP de sources uniquement et de `SHA256SUMS.txt`, dans un dossier de publication dédié. Retrait de l'archive Windows exécutable du processus après une détection Defender soumise à Microsoft et encore en attente d'analyse. Exemples, icône et licences conservés ; README français/anglais, guide de publication et mail adaptés à l'installation Python. Aucun changement des calculs.
 - Sécurité des imports : blocage des références réseau, lecteurs réseau et liens suivis automatiquement depuis un projet ; limites de taille, de décompression et de dimensions des tableaux, sans troncature. Protection XML par defusedxml 0.7.1, incluse dans les dépendances et la distribution avec sa licence. Sources locales, précision et calculs conservés.
 - Documentation : explication de l'avertissement Windows SmartScreen pour l'exécutable non signé, vérification de provenance et d'empreinte, étapes de lancement et recours au service informatique sur les postes gérés, dans les guides français et anglais.
@@ -18,6 +20,8 @@
 
 ### English
 
+- Portable Windows x64 distribution: include official Python 3.14.6, validated libraries and `Lancer_ThermalCurve.cmd`, without installation or a user `.venv`. Preserve sources, examples, icon and licenses; provide third-party sources separately. Launcher isolated from external Python installations; no PyInstaller `ThermalCurve.exe`. Update READMEs, release description and email. Scientific calculations unchanged.
+- Documentation: shortened the Windows Defender notice in both READMEs, the release description and the email, mentioning a possible executable version in a future update if the block is resolved.
 - Distribution: prepare a source-only ZIP and `SHA256SUMS.txt` in a dedicated publication folder. Remove the Windows executable archive from the workflow following a Defender detection submitted to Microsoft and still awaiting analysis. Preserve examples, icon and licenses; update both READMEs, the publication guide and announcement email for Python installation. No calculation changes.
 - Import security: block network references, mapped network drives and links automatically followed from a project; limit input size, decompression and table dimensions without truncation. XML protection through defusedxml 0.7.1, included in dependencies and distribution with its license. Local sources, precision and calculations preserved.
 - Documentation: explain the Windows SmartScreen warning for the unsigned executable, origin and checksum checks, launch steps and IT approval on managed computers in both language guides.

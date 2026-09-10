@@ -1,18 +1,18 @@
-# Préparer la distribution des sources / Prepare the source distribution
+# Préparer les distributions / Prepare the distributions
 
 ## Français
 
-Depuis le 10 septembre 2026, la distribution 1.0.1 est préparée uniquement sous
-forme de sources Python. L'exécutable signalé par Defender a été soumis à Microsoft
-et son analyse est en attente. Le processus ci-dessous ne compile pas d'exécutable
-et ne prépare pas d'archive Windows avec Python embarqué.
+Deux formats sont proposés : les sources Python et un ZIP portable Windows x64
+avec le Python officiel embarqué. Aucun `ThermalCurve.exe` n'est compilé ;
+le portable utilise `Lancer_ThermalCurve.cmd`. L'ancien exécutable reste bloqué
+par Windows Defender et pourra être proposé à nouveau si le problème est résolu.
 
 ### Préparer et vérifier
 
 Travailler à la racine du projet avec l'environnement de développement déjà
 installé. Pour l'installation utilisateur et le lancement, suivre
-[README.md](../README.md). Aucun PyInstaller ni téléchargement de sources tierces
-n'est nécessaire à la création de ce ZIP.
+[README.md](../README.md). PyInstaller n'est nécessaire pour aucun de ces formats.
+Le ZIP de sources seul ne nécessite aucun téléchargement de sources tierces.
 
 La version et le nom des archives sont lus dans `pyproject.toml`. Avant une
 nouvelle version, tenir aussi à jour `atg_dsc_corrector/__init__.py`, les deux
@@ -25,11 +25,44 @@ Depuis le dépôt de développement complet, valider la sélection des fichiers 
 .\.venv\Scripts\python.exe -m pytest tests/test_release_archives.py
 ```
 
-Ce test utilise des fichiers synthétiques isolés. Il vérifie la conservation des
-sources, exemples et licences, l'exclusion des binaires et projets personnels,
-ainsi que l'empreinte de l'archive. Le dossier `tests` n'est pas livré dans le ZIP.
+Ces tests utilisent des fichiers synthétiques isolés. Ils vérifient la séparation
+des sources et du runtime, les empreintes et l'exclusion des projets personnels
+et de `ThermalCurve.exe`. Le dossier `tests` n'est pas livré dans le ZIP.
 
-### Créer l'archive
+### Préparer la version portable
+
+Télécharger le [Python 3.14.6 embarqué officiel, 64 bits](https://www.python.org/downloads/release/python-3146/)
+dans `.tmp/python-3.14.6-embed-amd64.zip`. Le script vérifie son SHA-256 officiel
+avant extraction : `df901e84a896ff1ee720ad03377e0c8d8c2244fda79808aeeaff6316df1cb75c`.
+
+```powershell
+.\.venv\Scripts\python.exe packaging/prepare_portable.py .tmp/python-3.14.6-embed-amd64.zip .tmp/portable-python-1.0.1/python
+.\.venv\Scripts\python.exe packaging/make_archives.py --portable-runtime .tmp/portable-python-1.0.1/python
+```
+
+La préparation exige un dossier de runtime neuf. Elle copie les dépendances de
+l'environnement de développement validé, sans modifier `.venv`, et conserve
+les modules Qt Core, Gui, Widgets, Network et Svg utilisés par l'application.
+Les versions sont consignées dans `python/PORTABLE_RUNTIME.json`. Les chemins
+Python sont limités au portable ; le lanceur ignore les installations externes.
+
+Les archives tierces déjà référencées dans `licenses/SOURCE_ARCHIVES_SHA256.txt`
+doivent être disponibles dans `.tmp/third-party-sources` avec les mêmes empreintes.
+Elles sont redistribuées séparément pour accompagner les bibliothèques incluses.
+
+Le dossier **`dist/ThermalCurve-1.0.1-portable/`** contient les fichiers à publier :
+
+- `ThermalCurve-1.0.1-windows-x64-portable.zip` ;
+- `ThermalCurve-1.0.1-source.zip` ;
+- `ThermalCurve-1.0.1-third-party-sources.zip` ;
+- `SHA256SUMS.txt`, avec les empreintes des trois ZIP.
+
+Extraire le portable dans un autre emplacement et vérifier le lanceur, les deux
+exemples, les exports et l'absence de recours au Python de développement. Contrôler
+le dossier et le ZIP avec Defender avant publication. Un contrôle local sans
+détection ne garantit pas l'absence de blocage sur tous les postes.
+
+### Créer uniquement l'archive de sources
 
 ```powershell
 .\.venv\Scripts\python.exe packaging/make_archives.py
@@ -67,12 +100,10 @@ Get-FileHash .\dist\ThermalCurve-1.0.1-sources\ThermalCurve-1.0.1-source.zip -Al
 ### Mettre à jour GitHub manuellement
 
 Dans la page [Releases](https://github.com/Valent1L/ThermalCurve/releases), modifier
-la release 1.0.1 : retirer l'ancien ZIP `windows-x64` des fichiers téléchargeables,
-puis remplacer le ZIP de sources et `SHA256SUMS.txt` par ceux du nouveau dossier.
-Si un `.exe` est proposé séparément, le retirer également. Indiquer dans la
-description que Python doit être installé et renvoyer vers les README actualisés.
-Les sources tierces d'anciennes distributions peuvent rester disponibles pour
-conserver leur provenance.
+la release 1.0.1 : retirer l'ancien ZIP `windows-x64` avec `ThermalCurve.exe`, puis
+ajouter les quatre fichiers du dossier `dist/ThermalCurve-1.0.1-portable/`.
+Remplacer les pièces jointes de même nom. Utiliser la description de
+`RELEASE_1.0.1.md`, qui distingue le portable sans installation du ZIP de sources.
 
 Les fichiers visibles sur la page principale du dépôt doivent être mis à jour
 séparément dans le dépôt public, notamment les deux README. Une modification des
@@ -83,15 +114,17 @@ Ce script ne crée ni commit, ni tag, ni publication GitHub.
 
 ## English
 
-As of September 10, 2026, release 1.0.1 is prepared as Python sources only. The
-executable detected by Defender has been submitted to Microsoft and analysis is
-pending. This procedure does not build an executable or a Windows runtime bundle.
+Two formats are provided: Python sources and a portable Windows x64 ZIP with
+official embedded Python. No `ThermalCurve.exe` is built; the portable uses
+`Lancer_ThermalCurve.cmd`. The previous executable remains blocked by Windows
+Defender and may be offered again if the issue is resolved.
 
 ### Prepare and check
 
 Work at the project root with the existing development environment. User
 installation and startup are documented in [README_EN.md](../README_EN.md).
-Neither PyInstaller nor third-party source downloads are required to create this ZIP.
+Neither format requires PyInstaller. The source-only ZIP requires no third-party
+source downloads.
 
 The version and archive names come from `pyproject.toml`. For a new version, also
 update `atg_dsc_corrector/__init__.py`, both READMEs and `changelog.md`. Preserve
@@ -104,11 +137,44 @@ From the full development checkout, validate file selection:
 .\.venv\Scripts\python.exe -m pytest tests/test_release_archives.py
 ```
 
-The test uses isolated synthetic files to check preservation of sources, examples
-and licenses, exclusion of binaries and private projects, and the archive checksum.
+The tests use isolated synthetic files to check source/runtime separation,
+checksums and exclusion of private projects and `ThermalCurve.exe`.
 The `tests` directory is not distributed in the ZIP.
 
-### Create the archive
+### Prepare the portable version
+
+Download [official embedded Python 3.14.6, 64-bit](https://www.python.org/downloads/release/python-3146/)
+to `.tmp/python-3.14.6-embed-amd64.zip`. The script checks its official SHA-256
+before extraction: `df901e84a896ff1ee720ad03377e0c8d8c2244fda79808aeeaff6316df1cb75c`.
+
+```powershell
+.\.venv\Scripts\python.exe packaging/prepare_portable.py .tmp/python-3.14.6-embed-amd64.zip .tmp/portable-python-1.0.1/python
+.\.venv\Scripts\python.exe packaging/make_archives.py --portable-runtime .tmp/portable-python-1.0.1/python
+```
+
+Preparation requires a new runtime directory. It copies dependencies from the
+validated development environment without modifying `.venv`, retaining the Qt
+Core, Gui, Widgets, Network and Svg modules used by the application. Versions
+are recorded in `python/PORTABLE_RUNTIME.json`. Python search paths are limited
+to the portable folder; the launcher ignores external installations.
+
+Third-party archives listed in `licenses/SOURCE_ARCHIVES_SHA256.txt` must be
+available in `.tmp/third-party-sources` with matching checksums. They are distributed
+separately to accompany the bundled libraries.
+
+Publish the four files in **`dist/ThermalCurve-1.0.1-portable/`**:
+
+- `ThermalCurve-1.0.1-windows-x64-portable.zip`;
+- `ThermalCurve-1.0.1-source.zip`;
+- `ThermalCurve-1.0.1-third-party-sources.zip`;
+- `SHA256SUMS.txt`, containing the checksums of all three ZIPs.
+
+Extract the portable elsewhere and check the launcher, both examples, exports
+and independence from development Python. Scan the folder and ZIP with Defender
+before publication. A local scan without detections does not guarantee that
+every computer will allow the application to run.
+
+### Create only the source archive
 
 ```powershell
 .\.venv\Scripts\python.exe packaging/make_archives.py
@@ -143,11 +209,10 @@ Get-FileHash .\dist\ThermalCurve-1.0.1-sources\ThermalCurve-1.0.1-source.zip -Al
 ### Update GitHub manually
 
 On the [Releases page](https://github.com/Valent1L/ThermalCurve/releases), edit release
-1.0.1: remove the old `windows-x64` ZIP from the downloadable assets, then replace
-the source ZIP and `SHA256SUMS.txt` with the new files. Remove any separately
-published `.exe` as well. Explain in the description that Python must be installed
-and link to the updated READMEs. Third-party sources for previous distributions
-may remain available to preserve their provenance.
+1.0.1: remove the old `windows-x64` ZIP containing `ThermalCurve.exe`, then upload
+the four files from `dist/ThermalCurve-1.0.1-portable/`. Replace existing attachments
+with the same name. Use `RELEASE_1.0.1.md`, which distinguishes the portable version
+without installation from the source ZIP.
 
 Files shown on the repository's main page, especially both READMEs, need to be
 updated separately in the public repository. Changing release attachments does

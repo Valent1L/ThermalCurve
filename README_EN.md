@@ -36,13 +36,23 @@ in English and French. See [changelog.md](changelog.md) for changes.
 
 ## 1. Installation and startup
 
-### Source-only distribution
+### Portable Windows x64 version, no installation
 
-The current ThermalCurve 1.0.1 distribution contains the Python code, examples,
-icon and guides. **It includes neither `ThermalCurve.exe`, nor Python, nor the
-libraries that need to be installed.**
+1. Open "Assets" on the [releases page](https://github.com/Valent1L/ThermalCurve/releases)
+   and download **`ThermalCurve-1.0.1-windows-x64-portable.zip`**.
+2. Extract the entire ZIP into a personal folder you can write to.
+3. Double-click **`Lancer_ThermalCurve.cmd`**.
 
-The `.exe` version is currently unavailable because Windows Defender blocks it.
+Python and all required libraries are included. **No installation, `.venv` or
+`pip` command is needed.** Startup and processing work offline. Keep the `python`
+folder and all other files alongside the launcher; do not run from inside the ZIP.
+
+The launcher opens `run_qt.py` with the included official Python (`pythonw.exe`).
+It does not run a PyInstaller-built `ThermalCurve.exe`. Examples, icon and guides
+are preserved. Bundled libraries are listed in `python/PORTABLE_RUNTIME.json`
+and their licenses are in `licenses`.
+
+The previous `ThermalCurve.exe` is currently unavailable because Windows Defender blocks it.
 It may be offered in a future update if the issue is resolved.
 
 Startup has been checked on Windows 11, 64-bit. Linux and macOS have not yet
@@ -50,7 +60,12 @@ been validated: if you use either system, please contact me at
 valentin.legrand@emse.fr with your feedback. The commands below are for Windows.
 On a managed computer, follow your IT department's installation rules.
 
-### Download and install
+### Python sources, with manual installation
+
+**`ThermalCurve-1.0.1-source.zip`** contains the code, examples, icon and guides,
+but no Python or preinstalled libraries. This second option is for users who
+want to install Python and the dependencies themselves. For the portable version,
+use the three steps above.
 
 1. Open the [releases page](https://github.com/Valent1L/ThermalCurve/releases).
    Under version 1.0.1, expand "Assets" and download
@@ -632,6 +647,12 @@ Provenance and the MIT license for the Mendeleev v0.20.0 snapshot accompany the
 distributed resources.
 
 ## 12. Troubleshooting
+
+Portable launcher will not start: check that the entire ZIP has been extracted
+and that `python/pythonw.exe` and `run_qt.py` are present in their respective
+locations alongside the launcher. To display an error message, open PowerShell
+in this folder and run `.\python\python.exe -I -B run_qt.py`. If Windows Defender
+blocks startup, contact your IT department.
 
 Command `py` not found: check that Python and its Windows launcher are installed,
 then reopen PowerShell. `py -3.14 --version` must report a compatible version
