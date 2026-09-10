@@ -43,13 +43,9 @@ La distribution actuelle de ThermalCurve 1.0.1 contient le code Python, les
 exemples, l'icône et les guides. **Elle ne contient ni `ThermalCurve.exe`, ni Python,
 ni les bibliothèques à installer.**
 
-La distribution de l'exécutable a été suspendue après une détection par Microsoft
-Defender. Le fichier a été soumis à Microsoft le 10 septembre 2026 ; à cette date,
-l'analyse est en attente et un éventuel faux positif n'est pas confirmé. Les
-anciennes instructions permettant de passer l'avertissement SmartScreen ne
-s'appliquent pas à une détection antivirus. Ne pas désactiver les protections
-pour lancer l'ancien exécutable. Le lancement depuis les sources ne constitue
-pas une garantie d'absence de risque.
+La version `.exe` n'est pas disponible pour le moment en raison d'un blocage par
+Windows Defender. Elle pourra être proposée dans une future mise à jour si le
+problème est résolu.
 
 Le lancement a été vérifié sous Windows 11, 64 bits. Linux et macOS ne sont pas
 encore validés : si vous utilisez l'un de ces systèmes, merci de me contacter à
