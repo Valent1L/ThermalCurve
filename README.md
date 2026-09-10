@@ -459,6 +459,8 @@ l'alignement. La légende garde son éditeur dédié ; l'onglet Courbes est reti
   La seconde vue donne accès aux libellés, bornes, échelles et formats des valeurs
   de chaque grandeur mesurée. L'axe supérieur partage l'abscisse et la graduation
   de l'axe inférieur, avec une apparence indépendante ; il suit aussi le zoom.
+  Avec un seul axe vertical, le bord opposé ferme le cadre : noir par défaut à
+  l'export, il suit la couleur, l'épaisseur et la visibilité du trait de cet axe.
 - "Espacement" regroupe les marges automatiques ou manuelles du graphique et
   l'espacement des axes, de leurs noms et de leurs graduations.
 - Les lignes de référence, polices et annotations restent disponibles dans leurs

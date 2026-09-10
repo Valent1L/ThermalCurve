@@ -837,6 +837,13 @@ def apply_axis_appearance(primary, axes, thermal_axis, settings, warnings):
         spine.set_linewidth(style["width"])
         spine.set_edgecolor(style["color"] or NEUTRAL_AXIS_COLOR)
         spine._thermalcurve_custom_color = style["color"] is not None
+        if coordinate == "y" and len(axes) == 1 and thermal_axis is None:
+            # Complete the frame without adding a second ruler or twin overpainting.
+            frame = axis.spines["right" if side == "left" else "left"]
+            frame.set_visible(spine.get_visible())
+            frame.set_linewidth(spine.get_linewidth())
+            frame.set_edgecolor(spine.get_edgecolor())
+            frame._thermalcurve_custom_color = spine._thermalcurve_custom_color
         axis_object = axis.xaxis if coordinate == "x" else axis.yaxis
         axis_object.label.set_visible(style["visible"] and style["labels_visible"])
         axis_object.get_offset_text().set_visible(style["visible"] and style["labels_visible"])

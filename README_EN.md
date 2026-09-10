@@ -434,6 +434,8 @@ keeps its dedicated editor; the Curves tab has been removed.
   labels, limits, scales and number formats for each measured quantity. The top
   axis shares the bottom abscissa and tick spacing, with independent appearance;
   it also follows zooming.
+  With a single vertical axis, the opposite border completes the frame: black
+  by default in exports, it follows that axis line's color, thickness and visibility.
 - "Spacing" combines automatic or manual plot margins with spacing between
   axes, axis titles and tick labels.
 - Reference lines, fonts and annotations remain available in their tabs. The

@@ -4,6 +4,7 @@
 
 ### Français
 
+- Graphique avec un seul axe vertical : rétablissement du bord droit du cadre, noir par défaut à l'export et cohérent avec le style de l'axe. Correction commune aux expériences individuelles, superpositions et moyennes, sans ajout de graduations ni modification des données.
 - Distribution 1.0.1 : inclusion des projets de démonstration `.atgproj` du dossier `Exemple` dans les archives, sans inclure les projets personnels situés hors de ce dossier.
 - Éditeur de légende : réglages du texte disposés sur des lignes adaptables pour éviter le débordement horizontal avec la police de démarrage.
 - Lecture des exports ATG classiques sous extension `.XLS` ou sans extension avec conservation de leur ligne d'unités. Filtre d'importation explicite pour les fichiers sans extension. Résultats Δm/m₀ individuels indépendants des erreurs de référence du flux ; prise en charge de Δm/m₀ et du résiduel pour les moyennes avec masses connues. La modification de m₀ seule marque le projet comme modifié. Boutons entièrement colorés. Icône vectorielle ThermalCurve et ICO multi-tailles configurés pour Qt et PyInstaller. Renommage du guide français en README.md et adaptation de la distribution. Placement de légende réutilisé uniquement à géométrie identique au sein d'un rendu et déplacement par rafraîchissement local, sans suppression de points.
@@ -14,6 +15,7 @@
 
 ### English
 
+- Single vertical axis plots: restore the right frame border, black by default in exports and consistent with the axis style. Shared fix for individual experiments, overlays and means, without extra ticks or data changes.
 - Release 1.0.1: include the `.atgproj` demonstration projects from `Exemple` in the archives, while excluding personal projects outside this folder.
 - Legend editor: text controls use wrapping form rows to avoid horizontal overflow with the startup font.
 - Read classic ATG exports named `.XLS` or without an extension while preserving their units row. Explicit extensionless import filter. Individual Δm/m₀ remains available despite unrelated heat-flow reference errors; mean Δm/m₀ and residual values use known initial masses. Changing only m₀ marks the project modified. Full-color buttons. ThermalCurve vector icon and multi-size ICO configured for Qt and PyInstaller. Renamed the French guide to README.md and updated distribution paths. Reuse identical-geometry legend placement within a single draw and locally redraw dragged legends without removing points.
